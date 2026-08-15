@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>jrgn | The Industry Jargon & Acronym Game</title>
-  <meta name="description" content="jrgn — A real-time multiplayer game where players submit industry acronyms, bluff fake definitions, and guess the truth!">
+  <title>jrgn | The Industry Jargon & Acronym Party Game</title>
+  <meta name="description" content="jrgn — A real-time multiplayer game where players submit industry acronyms, bluff fake definitions, and guess the truth on phones and big screen TV!">
   <meta name="theme-color" content="#0F172A">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,6 +22,22 @@
       </div>
 
       <div class="header-right">
+        <!-- TV Host Mode Badge -->
+        <div class="tv-mode-pill hidden" id="header-tv-pill" title="Dedicated TV Display Mode">
+          <span class="pulse-live"></span>
+          <span>📺 TV HOST</span>
+        </div>
+
+        <!-- Sound Toggle -->
+        <button class="header-icon-btn" id="btn-toggle-sound" onclick="app.toggleSound()" title="Toggle Sound">
+          🔊
+        </button>
+
+        <!-- Fullscreen Toggle -->
+        <button class="header-icon-btn" id="btn-toggle-fullscreen" onclick="app.toggleFullscreen()" title="Toggle Fullscreen">
+          ⛶
+        </button>
+
         <!-- Room Code Pill (Hidden on welcome screen) -->
         <div class="room-pill hidden" id="header-room-pill" onclick="app.openQRModal()">
           <span class="room-pill-label">ROOM</span>
@@ -39,7 +55,7 @@
     <div class="toast-container" id="toast-container"></div>
 
     <!-- ========================================== -->
-    <!-- 1. SCREEN: WELCOME / JOIN / CREATE         -->
+    <!-- 1. SCREEN: WELCOME / JOIN / CREATE / TV    -->
     <!-- ========================================== -->
     <section class="screen active" id="screen-welcome">
       <div class="welcome-card">
@@ -64,59 +80,100 @@
           </div>
         </div>
 
-        <!-- Welcome Tabs -->
+        <!-- Welcome Tabs: Join, Create, Host on TV -->
         <div class="tab-group" role="tablist">
           <button class="tab-btn active" id="tab-join" onclick="app.switchWelcomeTab('join')">Join Room</button>
           <button class="tab-btn" id="tab-create" onclick="app.switchWelcomeTab('create')">Create Room</button>
+          <button class="tab-btn" id="tab-tv" onclick="app.switchWelcomeTab('tv')">📺 Host on TV</button>
         </div>
 
-        <!-- Form: Join/Create -->
-        <form class="welcome-form" id="welcome-form" onsubmit="app.handleWelcomeSubmit(event)">
-          
-          <!-- Nickname -->
-          <div class="form-group">
-            <label for="player-name" class="form-label">Your Nickname</label>
-            <input type="text" id="player-name" class="form-input" placeholder="e.g., Captain Acronym" maxlength="18" required autofocus>
-          </div>
-
-          <!-- Avatar Picker -->
-          <div class="form-group">
-            <label class="form-label">Choose Avatar</label>
-            <div class="avatar-grid" id="avatar-grid">
-              <!-- Rendered dynamically -->
-            </div>
-            <input type="hidden" id="selected-avatar" value="🚀">
-          </div>
-
-          <!-- Room Code Input (Only visible in Join mode) -->
-          <div class="form-group" id="group-room-code">
-            <label for="room-code-input" class="form-label">4-Letter Room Code</label>
-            <div class="code-input-wrapper">
-              <input type="text" id="room-code-input" class="form-input code-input" placeholder="ABCD" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+        <!-- TV Mode Dedicated Launcher Box -->
+        <div class="tv-welcome-box hidden" id="tv-welcome-launcher">
+          <div class="tv-wb-header">
+            <span class="tv-wb-icon">📺</span>
+            <div>
+              <h2 class="tv-wb-title">TV Display Host Mode</h2>
+              <p class="tv-wb-desc">Create a non-player big screen display. Players join from their smartphones.</p>
             </div>
           </div>
-
-          <!-- Submit Button -->
-          <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-welcome-action">
-            <span id="btn-welcome-text">Join Room</span> ➔
-          </button>
-        </form>
-
-        <!-- Quick How to Play -->
-        <div class="how-to-play-card">
-          <div class="htp-title">How It Works</div>
-          <div class="htp-steps">
-            <div class="htp-step">
-              <span class="step-num">1</span>
-              <span>Each player enters acronyms & true definitions from their field.</span>
+          <div class="tv-wb-actions">
+            <button class="btn btn-primary btn-lg btn-block btn-glow" onclick="app.createTvRoom()">
+              🚀 Create Big Screen TV Room
+            </button>
+            <div class="tv-join-secondary-section">
+              <div class="tv-join-divider"><span>or, join room on tv</span></div>
+              <div class="tv-cast-row">
+                <input type="text" id="tv-cast-code-input" class="form-input code-input" placeholder="ABCD" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+                <button class="btn btn-secondary" onclick="app.joinTvRoomByInput()">
+                  Join on TV ➔
+                </button>
+              </div>
             </div>
-            <div class="htp-step">
-              <span class="step-num">2</span>
-              <span>Everyone writes believable bluffs for each other's acronyms.</span>
+          </div>
+        </div>
+
+        <!-- Standard Player Form Section -->
+        <div id="player-welcome-section">
+          <!-- Form: Join/Create Player -->
+          <form class="welcome-form" id="welcome-form" onsubmit="app.handleWelcomeSubmit(event)">
+            
+            <!-- Nickname -->
+            <div class="form-group">
+              <label for="player-name" class="form-label">Your Nickname</label>
+              <input type="text" id="player-name" class="form-input" placeholder="e.g., Captain Acronym" maxlength="18" required autofocus>
             </div>
-            <div class="htp-step">
-              <span class="step-num">3</span>
-              <span>Vote for the truth! Gain points for guessing right & fooling others.</span>
+
+            <!-- Avatar Picker -->
+            <div class="form-group">
+              <label class="form-label">Choose Avatar</label>
+              <div class="avatar-grid" id="avatar-grid">
+                <!-- Rendered dynamically -->
+              </div>
+              <input type="hidden" id="selected-avatar" value="🚀">
+            </div>
+
+            <!-- Room Code Input (Only visible in Join mode) -->
+            <div class="form-group" id="group-room-code">
+              <label for="room-code-input" class="form-label">4-Letter Room Code</label>
+              <div class="code-input-wrapper">
+                <input type="text" id="room-code-input" class="form-input code-input" placeholder="ABCD" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+              </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-welcome-action">
+              <span id="btn-welcome-text">Join Room</span> ➔
+            </button>
+          </form>
+
+          <!-- Host on TV Action Card -->
+          <div class="tv-host-promo-card" onclick="app.enableTvMode()">
+            <div class="thp-left">
+              <span class="thp-icon">📺</span>
+              <div>
+                <div class="thp-title">Playing on a Big Screen or TV?</div>
+                <div class="thp-desc">Launch a dedicated TV Host screen for living rooms or projectors.</div>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-sm">Host on TV ➔</button>
+          </div>
+
+          <!-- Quick How to Play -->
+          <div class="how-to-play-card">
+            <div class="htp-title">How It Works</div>
+            <div class="htp-steps">
+              <div class="htp-step">
+                <span class="step-num">1</span>
+                <span>Each player enters acronyms & true definitions from their field.</span>
+              </div>
+              <div class="htp-step">
+                <span class="step-num">2</span>
+                <span>Everyone writes believable bluffs for each other's acronyms.</span>
+              </div>
+              <div class="htp-step">
+                <span class="step-num">3</span>
+                <span>Vote for the truth! Gain points for guessing right & fooling others.</span>
+              </div>
             </div>
           </div>
         </div>
@@ -125,27 +182,37 @@
     </section>
 
     <!-- ========================================== -->
-    <!-- 2. SCREEN: LOBBY                           -->
+    <!-- 2. SCREEN: LOBBY (PLAYER & TV DISPLAY)    -->
     <!-- ========================================== -->
     <section class="screen" id="screen-lobby">
       <div class="lobby-grid">
         
-        <!-- Left / Top Column: Room Code & Players -->
+        <!-- Left / Top Column: Room Code, QR & Instructions -->
         <div class="lobby-main">
-          <!-- Room Code Card -->
-          <div class="room-code-card">
+          <!-- Room Code Card / Big Screen QR Banner -->
+          <div class="room-code-card" id="lobby-code-card">
             <div class="rcc-header">
               <span class="rcc-badge">ROOM CODE</span>
-              <button class="btn btn-ghost btn-sm" onclick="app.openQRModal()">
+              <button class="btn btn-ghost btn-sm" id="btn-open-qr-modal" onclick="app.openQRModal()">
                 📱 Phone QR Code
               </button>
             </div>
+
+            <!-- Big Screen Embedded QR for TV Mode -->
+            <div class="tv-lobby-qr-container hidden" id="tv-lobby-qr-wrapper">
+              <img id="tv-lobby-qr-image" class="tv-qr-image" alt="Room QR Code" src="">
+              <div class="tv-qr-scan-hint">Scan with phone camera to join!</div>
+            </div>
+
             <div class="rcc-code-display" id="lobby-room-code" onclick="app.copyRoomLink()" title="Click to copy join link">
               ----
             </div>
-            <div class="rcc-sub">
+            <div class="rcc-sub" id="lobby-room-sub">
               <span>Tap code to copy share link</span>
               <span class="copy-hint" id="copy-hint">📋 Copied!</span>
+            </div>
+            <div class="tv-direct-join-url hidden" id="tv-direct-join-url">
+              Join at: <b id="tv-join-url-text">localhost:3000</b>
             </div>
           </div>
 
@@ -161,7 +228,7 @@
             </div>
 
             <div class="player-roster-grid" id="lobby-roster-grid">
-              <!-- Rendered dynamically -->
+              <!-- Rendered dynamically with live join animations -->
             </div>
 
             <div class="lobby-min-players-hint" id="lobby-min-hint">
@@ -226,7 +293,7 @@
             <!-- Action Area -->
             <div class="lobby-action-area">
               <div id="host-start-container">
-                <button class="btn btn-primary btn-block btn-lg" id="btn-start-game" onclick="app.startGame()">
+                <button class="btn btn-primary btn-block btn-lg btn-glow" id="btn-start-game" onclick="app.startGame()">
                   🚀 Start Game
                 </button>
               </div>
@@ -250,11 +317,20 @@
         
         <div class="phase-header">
           <div class="badge-tag">PHASE 1: SUBMISSIONS</div>
-          <h2 class="phase-title">Enter Your Industry Acronyms</h2>
-          <p class="phase-desc">Submit <span id="submit-words-count-label">2</span> acronyms with their true meanings. You can also pick from presets!</p>
+          <h2 class="phase-title" id="submit-phase-title">Enter Your Industry Acronyms</h2>
+          <p class="phase-desc" id="submit-phase-desc">Submit <span id="submit-words-count-label">2</span> acronyms with their true meanings. You can also pick from presets!</p>
         </div>
 
-        <!-- Form for Submissions -->
+        <!-- TV Big Screen Submissions Spectator Box (Hidden on player devices) -->
+        <div class="tv-phase-banner hidden" id="tv-submit-banner">
+          <span class="tv-pb-icon">✍️</span>
+          <div class="tv-pb-text">
+            <h3>Players Are Crafting Secret Acronyms!</h3>
+            <p>Each player is submitting acronyms and true definitions on their smartphones.</p>
+          </div>
+        </div>
+
+        <!-- Form for Submissions (Player only) -->
         <form class="submissions-form" id="submissions-form" onsubmit="app.handleWordsSubmit(event)">
           <div class="submission-cards-list" id="submission-cards-list">
             <!-- Rendered dynamically based on options.wordsPerPlayer -->
@@ -272,9 +348,9 @@
 
         <!-- Live Submissions Tracker -->
         <div class="live-status-card" id="submission-status-card">
-          <div class="lsc-title">Player Submission Status</div>
+          <div class="lsc-title">Player Submission Status (<span id="submit-ready-count">0</span> ready)</div>
           <div class="lsc-player-list" id="submission-players-list">
-            <!-- Rendered dynamically -->
+            <!-- Rendered dynamically with live checkmarks -->
           </div>
         </div>
 
@@ -308,10 +384,10 @@
           <div class="asc-acronym" id="guess-acronym-text">
             SaaS
           </div>
-          <div class="asc-prompt">What does this acronym stand for?</div>
+          <div class="asc-prompt" id="guess-acronym-prompt">What does this acronym stand for?</div>
         </div>
 
-        <!-- Non-Author Bluff Submission Card -->
+        <!-- Non-Author Bluff Submission Card (Player only) -->
         <div class="card guess-action-card" id="guess-player-action-card">
           <div class="gac-header">
             <h3 class="gac-title">Write Your Bluff Definition</h3>
@@ -358,11 +434,11 @@
           </div>
         </div>
 
-        <!-- Live Player Guessing Progress -->
+        <!-- Live Player Guessing Progress (with checkmarks) -->
         <div class="live-status-card" id="guess-status-card">
-          <div class="lsc-title">Players Guessing</div>
+          <div class="lsc-title">Live Bluffing Status (<span id="guess-ready-count">0</span> locked in)</div>
           <div class="lsc-player-list" id="guess-players-list">
-            <!-- Rendered dynamically -->
+            <!-- Rendered dynamically with live checkmarks -->
           </div>
         </div>
 
@@ -400,17 +476,28 @@
           </div>
         </div>
 
-        <!-- Options Voting Cards Grid -->
-        <div class="voting-options-list" id="voting-options-list">
-          <!-- Rendered dynamically -->
+        <!-- Big Card Shuffle Animation Deck Wrapper -->
+        <div class="shuffle-deck-wrapper" id="shuffle-deck-wrapper">
+          <!-- Options Voting Cards Grid -->
+          <div class="voting-options-list" id="voting-options-list">
+            <!-- Rendered dynamically with shuffle deal animation -->
+          </div>
         </div>
 
-        <!-- Vote Submitted Notice -->
+        <!-- Vote Submitted Notice (Player only) -->
         <div class="card vote-locked-card hidden" id="vote-locked-card">
           <span class="checkmark-icon">✓</span>
           <div>
             <div class="vlc-title">Vote Submitted!</div>
-            <div class="vlc-sub">Tallying results...</div>
+            <div class="vlc-sub">Waiting for final votes...</div>
+          </div>
+        </div>
+
+        <!-- Live Player Voting Progress (Visible on TV and player) -->
+        <div class="live-status-card" id="vote-status-card">
+          <div class="lsc-title">Live Voting Status (<span id="vote-ready-count">0</span> voted)</div>
+          <div class="lsc-player-list" id="vote-players-list">
+            <!-- Rendered dynamically with checkmarks -->
           </div>
         </div>
 
@@ -429,22 +516,25 @@
           <div class="category-pill" id="reveal-acronym-category">Tech & Software</div>
         </div>
 
-        <!-- Step-by-step reveal card container -->
-        <div class="reveal-cards-container" id="reveal-cards-container">
-          <!-- Rendered dynamically -->
+        <!-- TV Dramatic Step-by-Step Reveal Stage -->
+        <div class="reveal-stage" id="reveal-stage">
+          <!-- Step-by-step reveal card container -->
+          <div class="reveal-cards-container" id="reveal-cards-container">
+            <!-- Rendered dynamically with step-by-step animations -->
+          </div>
         </div>
 
         <!-- Round Scoreboard Leaderboard -->
-        <div class="card round-leaderboard-card">
+        <div class="card round-leaderboard-card" id="reveal-leaderboard-card">
           <h3 class="card-title">Current Standings</h3>
           <div class="reveal-leaderboard-list" id="reveal-leaderboard-list">
-            <!-- Rendered dynamically -->
+            <!-- Rendered dynamically with animated scores -->
           </div>
         </div>
 
         <!-- Host Action Button -->
         <div class="reveal-host-actions" id="reveal-host-actions">
-          <button class="btn btn-primary btn-lg btn-block" id="btn-next-round" onclick="app.nextRound()">
+          <button class="btn btn-primary btn-lg btn-block btn-glow" id="btn-next-round" onclick="app.nextRound()">
             Next Acronym ➔
           </button>
         </div>
@@ -461,10 +551,10 @@
         <div class="podium-header">
           <div class="trophy-emoji">🏆</div>
           <h1 class="scoreboard-title">GAME OVER!</h1>
-          <p class="scoreboard-sub">Final Scores & Podium</p>
+          <p class="scoreboard-sub">Final Scores & Champion Podium</p>
         </div>
 
-        <!-- Podium Top 3 (Rendered dynamically with tie support) -->
+        <!-- Podium Top 3 (Rendered dynamically with 3D pillars & tie support) -->
         <div class="podium-display" id="podium-display">
           <!-- Rendered dynamically -->
         </div>
@@ -473,13 +563,13 @@
         <div class="card final-rankings-card">
           <h3 class="card-title">Full Leaderboard</h3>
           <div class="final-rankings-list" id="final-rankings-list">
-            <!-- Rendered dynamically -->
+            <!-- Rendered dynamically with tie rank badges -->
           </div>
         </div>
 
         <!-- Play Again Actions -->
         <div class="scoreboard-actions">
-          <button class="btn btn-primary btn-lg btn-block" id="btn-play-again" onclick="app.playAgain()">
+          <button class="btn btn-primary btn-lg btn-block btn-glow" id="btn-play-again" onclick="app.playAgain()">
             🔄 Play Again (Same Room)
           </button>
           <button class="btn btn-secondary btn-block" onclick="app.leaveRoom()">
@@ -546,6 +636,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="presets.js"></script>
   <script src="js/confetti.js"></script>
+  <script src="js/audio.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

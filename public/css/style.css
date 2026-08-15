@@ -1917,3 +1917,454 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* ==========================================================================
+   TV Display / Spectator Big Screen Mode (10-Foot UI)
+   ========================================================================== */
+
+/* Header controls & badges */
+.tv-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid var(--accent-emerald);
+  color: #A7F3D0;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+
+.pulse-live {
+  width: 8px;
+  height: 8px;
+  background-color: var(--accent-emerald);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-emerald);
+  animation: livePulse 1.5s infinite ease-in-out;
+}
+
+@keyframes livePulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 12px var(--accent-emerald); }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.header-icon-btn {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all var(--transition-fast);
+}
+
+.header-icon-btn:hover {
+  background: var(--border-strong);
+  border-color: var(--accent-gold);
+  transform: translateY(-1px);
+}
+
+/* Button Glow Pulse */
+.btn-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-glow:not(:disabled) {
+  animation: glowPulse 2.2s infinite ease-in-out;
+}
+
+@keyframes glowPulse {
+  0% { box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35); }
+  50% { box-shadow: 0 4px 25px rgba(245, 158, 11, 0.7), 0 0 12px rgba(245, 158, 11, 0.5); }
+  100% { box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35); }
+}
+
+/* TV Welcome & Promo Cards */
+.tv-welcome-box {
+  background: linear-gradient(135deg, rgba(19, 30, 50, 0.95), rgba(27, 41, 66, 0.95));
+  border: 2px solid var(--accent-gold);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 30px rgba(245, 158, 11, 0.2);
+  animation: fadeIn 0.35s ease;
+}
+
+.tv-wb-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.tv-wb-icon {
+  font-size: 2.5rem;
+  filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.4));
+}
+
+.tv-wb-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tv-wb-desc {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.tv-wb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tv-join-secondary-section {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tv-join-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin: 4px 0;
+}
+
+.tv-join-divider::before,
+.tv-join-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.tv-join-divider span {
+  padding: 0 12px;
+  color: var(--text-secondary);
+}
+
+.tv-cast-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.tv-cast-row .form-input {
+  max-width: 180px;
+}
+
+.tv-host-promo-card {
+  background: rgba(19, 30, 50, 0.7);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 24px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tv-host-promo-card:hover {
+  background: var(--bg-surface-elevated);
+  border-color: var(--accent-gold);
+  transform: translateY(-2px);
+}
+
+.thp-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.thp-icon {
+  font-size: 1.8rem;
+}
+
+.thp-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.thp-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+/* TV Lobby Big Screen Elements */
+.tv-lobby-qr-container {
+  background: #FFFFFF;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 16px 0;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+
+.tv-qr-image {
+  width: 220px;
+  height: 220px;
+  display: block;
+}
+
+.tv-qr-scan-hint {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: #0B1120;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
+.tv-direct-join-url {
+  font-size: 0.95rem;
+  color: var(--accent-cyan);
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.tv-phase-banner {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-md);
+}
+
+.tv-pb-icon {
+  font-size: 2.2rem;
+}
+
+.tv-pb-text h3 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tv-pb-text p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Big Card Shuffle Animation for Bluffs */
+.shuffle-deck-wrapper {
+  position: relative;
+  width: 100%;
+  perspective: 1000px;
+}
+
+.vote-option-card.shuffle-in {
+  animation: cardDealShuffle 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
+}
+
+@keyframes cardDealShuffle {
+  0% {
+    opacity: 0;
+    transform: translateY(-40px) rotate(-6deg) scale(0.9);
+  }
+  60% {
+    transform: translateY(6px) rotate(2deg) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+/* Staggered deal delay */
+.vote-option-card:nth-child(1) { animation-delay: 0.05s; }
+.vote-option-card:nth-child(2) { animation-delay: 0.15s; }
+.vote-option-card:nth-child(3) { animation-delay: 0.25s; }
+.vote-option-card:nth-child(4) { animation-delay: 0.35s; }
+.vote-option-card:nth-child(5) { animation-delay: 0.45s; }
+.vote-option-card:nth-child(6) { animation-delay: 0.55s; }
+
+/* Player Badge Pop-in animation */
+.player-badge-card {
+  animation: playerCardPopIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes playerCardPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(15px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Live Ready Status Chips */
+.lsc-player-chip.is-ready {
+  border-color: var(--accent-emerald) !important;
+  background: var(--accent-emerald-light) !important;
+  color: #A7F3D0 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+  animation: chipReadyPulse 0.3s ease;
+}
+
+@keyframes chipReadyPulse {
+  0% { transform: scale(0.95); }
+  50% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* Dramatic Step-by-Step Reveal Card Styles */
+.reveal-card {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal-card.revealed-bluff {
+  border-color: rgba(244, 63, 94, 0.7);
+  background: rgba(244, 63, 94, 0.06);
+  animation: bluffRevealPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes bluffRevealPop {
+  0% { transform: scale(0.96); opacity: 0.8; }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.reveal-card.revealed-real {
+  border: 2px solid var(--accent-gold);
+  background: radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.18) 0%, rgba(19, 30, 50, 0.9) 100%);
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.35);
+  animation: realAnswerPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes realAnswerPop {
+  0% { transform: scale(0.94); box-shadow: 0 0 0 rgba(245, 158, 11, 0); }
+  50% { transform: scale(1.04); box-shadow: 0 0 35px rgba(245, 158, 11, 0.6); }
+  100% { transform: scale(1); box-shadow: 0 0 25px rgba(245, 158, 11, 0.35); }
+}
+
+/* ==========================================================================
+   10-Foot UI Scaling for Body in TV Mode (body.mode-tv)
+   ========================================================================== */
+
+body.mode-tv .game-container {
+  max-width: 1200px;
+  padding: 24px 32px 48px;
+}
+
+body.mode-tv .app-header .header-content {
+  max-width: 1200px;
+}
+
+body.mode-tv .asc-acronym {
+  font-size: 4.8rem;
+  letter-spacing: 0.08em;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+body.mode-tv .asc-prompt {
+  font-size: 1.45rem;
+  font-weight: 600;
+}
+
+body.mode-tv .timer-badge {
+  padding: 10px 22px;
+  font-size: 1.35rem;
+}
+
+body.mode-tv .timer-val {
+  font-size: 1.65rem;
+}
+
+body.mode-tv .rcc-code-display {
+  font-size: 3.8rem;
+  letter-spacing: 0.15em;
+  padding: 18px 24px;
+}
+
+body.mode-tv .voc-text {
+  font-size: 1.4rem;
+  line-height: 1.4;
+  padding: 6px 0;
+}
+
+body.mode-tv .rc-text {
+  font-size: 1.35rem;
+}
+
+body.mode-tv .rc-tag-real,
+body.mode-tv .rc-tag-bluff {
+  font-size: 0.95rem;
+  padding: 6px 14px;
+}
+
+body.mode-tv .rc-voter-chip {
+  font-size: 0.95rem;
+  padding: 6px 14px;
+}
+
+body.mode-tv .rl-item {
+  padding: 14px 20px;
+  font-size: 1.15rem;
+}
+
+body.mode-tv .rl-score {
+  font-size: 1.35rem;
+}
+
+body.mode-tv .podium-name {
+  font-size: 1.15rem;
+}
+
+body.mode-tv .podium-score {
+  font-size: 1.25rem;
+}
+
+body.mode-tv .podium-avatar {
+  font-size: 3.2rem;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 768px) {
+  .tv-cast-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tv-cast-row .form-input {
+    max-width: 100%;
+  }
+  .tv-host-promo-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+

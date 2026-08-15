@@ -20,6 +20,10 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+app.get('/tv', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // In-memory room store
 const rooms = new Map();
 
@@ -50,10 +54,16 @@ const BOT_PROFILES = [
 ];
 
 // Helper to create a new room object
-function createRoomState(roomCode, hostPlayer) {
+function createRoomState(roomCode, hostPlayer = null) {
+  const players = {};
+  if (hostPlayer) {
+    players[hostPlayer.id] = hostPlayer;
+  }
+
   return {
     roomCode,
-    hostPlayerId: hostPlayer.id,
+    hostPlayerId: hostPlayer ? hostPlayer.id : null,
+    hasTvHost: !hostPlayer,
     status: 'LOBBY', // 'LOBBY' | 'SUBMITTING' | 'GUESSING' | 'VOTING' | 'REVEAL' | 'SCOREBOARD'
     createdAt: Date.now(),
     options: {
@@ -64,9 +74,7 @@ function createRoomState(roomCode, hostPlayer) {
       pointsForBluff: 500,
       pointsForAuthorBonus: 300
     },
-    players: {
-      [hostPlayer.id]: hostPlayer
-    },
+    players,
     acronymDeck: [],
     currentAcronymIndex: 0,
     currentRound: null,
@@ -84,7 +92,7 @@ function getSafeRoomState(room, targetPlayerId = null) {
     id: p.id,
     name: p.name,
     avatar: p.avatar,
-    isHost: p.id === room.hostPlayerId,
+    isHost: Boolean(room.hostPlayerId && p.id === room.hostPlayerId),
     isBot: Boolean(p.isBot),
     score: p.score || 0,
     roundScoreGain: p.roundScoreGain || 0,
@@ -98,7 +106,7 @@ function getSafeRoomState(room, targetPlayerId = null) {
   // Build safe round data
   let safeRound = null;
   if (room.currentRound) {
-    const isAuthor = targetPlayerId === room.currentRound.submitterId;
+    const isAuthor = Boolean(targetPlayerId && targetPlayerId === room.currentRound.submitterId);
     const isRevealOrScoreboard = room.status === 'REVEAL' || room.status === 'SCOREBOARD';
 
     safeRound = {
@@ -129,6 +137,7 @@ function getSafeRoomState(room, targetPlayerId = null) {
   return {
     roomCode: room.roomCode,
     hostPlayerId: room.hostPlayerId,
+    hasTvHost: Boolean(room.hasTvHost),
     status: room.status,
     options: room.options,
     players: playerList,
@@ -140,7 +149,7 @@ function getSafeRoomState(room, targetPlayerId = null) {
   };
 }
 
-// Broadcast room state to all sockets in room (tailored for each player)
+// Broadcast room state to all sockets in room (tailored for each player, or neutral for TV display)
 function broadcastRoomState(room) {
   if (!room) return;
   const sockets = io.sockets.adapter.rooms.get(room.roomCode);
@@ -148,9 +157,14 @@ function broadcastRoomState(room) {
 
   for (const socketId of sockets) {
     const socket = io.sockets.sockets.get(socketId);
-    if (socket && socket.data && socket.data.playerId) {
-      const safeState = getSafeRoomState(room, socket.data.playerId);
-      socket.emit('roomStateUpdate', safeState);
+    if (socket && socket.data) {
+      if (socket.data.isTvDisplay || !socket.data.playerId) {
+        const safeState = getSafeRoomState(room, null);
+        socket.emit('roomStateUpdate', safeState);
+      } else if (socket.data.playerId) {
+        const safeState = getSafeRoomState(room, socket.data.playerId);
+        socket.emit('roomStateUpdate', safeState);
+      }
     }
   }
 }
@@ -611,8 +625,84 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Helper to check if socket has host privileges (host player or TV screen host)
+function isAuthorizedHost(room, socket) {
+  if (!room) return false;
+  const { playerId, isTvDisplay, isTvHost } = socket.data || {};
+  if (isTvDisplay || isTvHost) return true;
+  if (room.hostPlayerId && room.hostPlayerId === playerId) return true;
+  if (!room.hostPlayerId) return true;
+  return false;
+}
+
 // Socket.io Connection & Events
 io.on('connection', (socket) => {
+  // 0. CREATE TV / DEDICATED BIG SCREEN ROOM
+  socket.on('createTvRoom', ({ options } = {}, callback) => {
+    try {
+      let roomCode = generateRoomCode();
+      while (rooms.has(roomCode)) {
+        roomCode = generateRoomCode();
+      }
+
+      const room = createRoomState(roomCode, null);
+      room.hasTvHost = true;
+      if (options && typeof options === 'object') {
+        room.options = { ...room.options, ...options };
+      }
+
+      rooms.set(roomCode, room);
+
+      socket.join(roomCode);
+      socket.data = { roomCode, isTvDisplay: true, isTvHost: true, playerId: null };
+
+      if (typeof callback === 'function') {
+        callback({
+          success: true,
+          roomCode,
+          isTvDisplay: true,
+          isTvHost: true,
+          roomState: getSafeRoomState(room, null)
+        });
+      }
+
+      broadcastRoomState(room);
+    } catch (err) {
+      console.error('Error creating TV room:', err);
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
+  // 0.1 JOIN AS TV DISPLAY / SPECTATOR SCREEN
+  socket.on('joinTvRoom', ({ roomCode }, callback) => {
+    try {
+      const code = (roomCode || '').trim().toUpperCase();
+      const room = rooms.get(code);
+
+      if (!room) {
+        return callback && callback({ success: false, error: 'Room not found! Check your code.' });
+      }
+
+      socket.join(code);
+      socket.data = { roomCode: code, isTvDisplay: true, playerId: null };
+
+      if (typeof callback === 'function') {
+        callback({
+          success: true,
+          roomCode: code,
+          isTvDisplay: true,
+          isTvHost: Boolean(room.hasTvHost || !room.hostPlayerId),
+          roomState: getSafeRoomState(room, null)
+        });
+      }
+
+      broadcastRoomState(room);
+    } catch (err) {
+      console.error('Error joining TV room:', err);
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
+    }
+  });
+
   // 1. CREATE ROOM
   socket.on('createRoom', ({ playerName, avatar, options }, callback) => {
     try {
@@ -691,12 +781,17 @@ io.on('connection', (socket) => {
       const name = sanitize(playerName) || `Player ${Object.keys(room.players).length + 1}`;
       const userAvatar = avatar || '🎯';
 
+      const isFirstPlayer = Object.keys(room.players).length === 0 || !room.hostPlayerId;
+      if (isFirstPlayer) {
+        room.hostPlayerId = playerId;
+      }
+
       const player = {
         id: playerId,
         sessionToken,
         name,
         avatar: userAvatar,
-        isHost: false,
+        isHost: isFirstPlayer,
         isBot: false,
         score: 0,
         roundScoreGain: 0,
@@ -771,11 +866,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 4. UPDATE ROOM OPTIONS (Host only)
+  // 4. UPDATE ROOM OPTIONS (Host or TV Host)
   socket.on('updateOptions', ({ options }, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId || room.status !== 'LOBBY') {
+    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'LOBBY') {
       return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
     }
 
@@ -788,9 +883,9 @@ io.on('connection', (socket) => {
 
   // 5. ADD / REMOVE BOT
   socket.on('addBot', (_, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId || room.status !== 'LOBBY') {
+    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'LOBBY') {
       return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
     }
 
@@ -821,9 +916,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('removePlayer', ({ targetPlayerId }, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId || room.status !== 'LOBBY') {
+    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'LOBBY') {
       return callback && callback({ success: false, error: 'Unauthorized' });
     }
 
@@ -834,11 +929,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 6. START GAME (Host only)
+  // 6. START GAME (Host or TV Host)
   socket.on('startGame', (_, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId || room.status !== 'LOBBY') {
+    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'LOBBY') {
       return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
     }
 
@@ -969,11 +1064,11 @@ io.on('connection', (socket) => {
     checkAllVotesComplete(room);
   });
 
-  // 10. NEXT ROUND (Host only)
+  // 10. NEXT ROUND (Host or TV Host)
   socket.on('nextRound', (_, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId || room.status !== 'REVEAL') {
+    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'REVEAL') {
       return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
     }
 
@@ -981,11 +1076,11 @@ io.on('connection', (socket) => {
     callback && callback({ success: true });
   });
 
-  // 11. PLAY AGAIN (Host only)
+  // 11. PLAY AGAIN (Host or TV Host)
   socket.on('playAgain', (_, callback) => {
-    const { roomCode, playerId } = socket.data || {};
+    const { roomCode } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || room.hostPlayerId !== playerId) {
+    if (!room || !isAuthorizedHost(room, socket)) {
       return callback && callback({ success: false, error: 'Unauthorized' });
     }
 

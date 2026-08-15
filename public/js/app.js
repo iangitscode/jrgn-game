@@ -1,4 +1,7 @@
-// Main Frontend Application Logic
+// ==========================================================================
+// jrgn - Main Application Logic & TV Display / Spectator Host Engine
+// ==========================================================================
+
 class AcronymGameApp {
   constructor() {
     this.socket = null;
@@ -9,12 +12,18 @@ class AcronymGameApp {
       playerName: '',
       avatar: '🚀',
       isHost: false,
+      isTvMode: false,
       currentScreen: 'screen-welcome',
       roomData: null,
       activeIdeaCardIndex: null,
       selectedVoteOptionId: null,
       activeCategoryFilter: 'ALL',
-      lastRenderedAcronym: null
+      lastRenderedAcronym: null,
+      knownPlayersCount: 0,
+      hasShownVotingShuffle: false,
+      lastRevealAcronym: null,
+      revealStep: 0,
+      revealTimer: null
     };
 
     this.avatars = ['🚀', '💡', '👾', '🔬', '🎯', '⚡', '🦊', '🍕', '🎩', '🦄', '💎', '🎲'];
@@ -25,9 +34,12 @@ class AcronymGameApp {
     this.renderAvatarGrid();
     this.initUrlParams();
     this.checkSavedSession();
+    this.updateSoundButtonState();
   }
 
-  // Socket setup
+  // -------------------------------------------------------------
+  // SOCKET SETUP
+  // -------------------------------------------------------------
   initSocket() {
     this.socket = io({
       reconnection: true,
@@ -39,8 +51,12 @@ class AcronymGameApp {
       console.log('Connected to server with socket ID:', this.socket.id);
       // Auto-reconnect if session exists
       const saved = this.getSavedSession();
-      if (saved && saved.roomCode && saved.playerId && saved.sessionToken && this.state.roomCode) {
-        this.executeRejoin(true);
+      if (saved && saved.roomCode) {
+        if (saved.isTvMode) {
+          this.joinTvRoom(saved.roomCode, true);
+        } else if (saved.playerId && saved.sessionToken && this.state.roomCode) {
+          this.executeRejoin(true);
+        }
       }
     });
 
@@ -58,7 +74,9 @@ class AcronymGameApp {
     });
   }
 
-  // Session persistence in localStorage
+  // -------------------------------------------------------------
+  // SESSION PERSISTENCE (LocalStorage)
+  // -------------------------------------------------------------
   getSavedSession() {
     try {
       const data = localStorage.getItem('jrgn_session') || localStorage.getItem('acro_party_session');
@@ -85,23 +103,32 @@ class AcronymGameApp {
 
   checkSavedSession() {
     const saved = this.getSavedSession();
-    if (saved && saved.roomCode && saved.sessionToken) {
-      const banner = document.getElementById('reconnect-banner');
-      const recCode = document.getElementById('rec-room-code');
-      const recName = document.getElementById('rec-player-name');
-      if (banner && recCode && recName) {
-        recCode.textContent = saved.roomCode;
-        recName.textContent = saved.playerName || 'Player';
-        banner.classList.remove('hidden');
+    if (saved && saved.roomCode) {
+      if (saved.isTvMode) {
+        this.enableTvMode(false);
+        const castInput = document.getElementById('tv-cast-code-input');
+        if (castInput) castInput.value = saved.roomCode;
+        return;
       }
 
-      // Pre-fill nickname
-      if (saved.playerName) {
-        const nameInput = document.getElementById('player-name');
-        if (nameInput) nameInput.value = saved.playerName;
-      }
-      if (saved.avatar) {
-        this.selectAvatar(saved.avatar);
+      if (saved.sessionToken && saved.playerId) {
+        const banner = document.getElementById('reconnect-banner');
+        const recCode = document.getElementById('rec-room-code');
+        const recName = document.getElementById('rec-player-name');
+        if (banner && recCode && recName) {
+          recCode.textContent = saved.roomCode;
+          recName.textContent = saved.playerName || 'Player';
+          banner.classList.remove('hidden');
+        }
+
+        // Pre-fill nickname & avatar
+        if (saved.playerName) {
+          const nameInput = document.getElementById('player-name');
+          if (nameInput) nameInput.value = saved.playerName;
+        }
+        if (saved.avatar) {
+          this.selectAvatar(saved.avatar);
+        }
       }
     }
   }
@@ -131,6 +158,7 @@ class AcronymGameApp {
         this.state.sessionToken = res.sessionToken;
         this.state.playerName = saved.playerName;
         this.state.avatar = saved.avatar;
+        this.state.isTvMode = false;
 
         this.updateHeaderRoomPill(res.roomCode);
         this.handleRoomStateUpdate(res.roomState);
@@ -144,20 +172,149 @@ class AcronymGameApp {
     });
   }
 
-  // URL parameters (e.g. ?room=ABCD)
+  // -------------------------------------------------------------
+  // URL PARAMETERS & TV MODE DETECTION
+  // -------------------------------------------------------------
   initUrlParams() {
     const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room');
-    if (roomParam) {
+    const modeParam = params.get('mode');
+    const isTvUrl = modeParam === 'tv' || params.has('tv') || window.location.pathname.startsWith('/tv');
+    const roomParam = (params.get('room') || params.get('code') || '').trim().toUpperCase();
+
+    if (isTvUrl) {
+      this.enableTvMode(true);
+      if (roomParam) {
+        const castInput = document.getElementById('tv-cast-code-input');
+        if (castInput) castInput.value = roomParam;
+        this.joinTvRoom(roomParam);
+      }
+    } else if (roomParam) {
       const codeInput = document.getElementById('room-code-input');
       if (codeInput) {
-        codeInput.value = roomParam.trim().toUpperCase();
+        codeInput.value = roomParam;
       }
       this.switchWelcomeTab('join');
     }
   }
 
-  // Render Avatar Grid
+  // -------------------------------------------------------------
+  // TV MODE LAUNCHER & HOST CONTROLS
+  // -------------------------------------------------------------
+  enableTvMode(showToastNotice = true) {
+    this.state.isTvMode = true;
+    document.body.classList.add('mode-tv');
+
+    const tvPill = document.getElementById('header-tv-pill');
+    if (tvPill) tvPill.classList.remove('hidden');
+
+    const tvLauncher = document.getElementById('tv-welcome-launcher');
+    const playerSection = document.getElementById('player-welcome-section');
+    if (tvLauncher) tvLauncher.classList.remove('hidden');
+    if (playerSection) playerSection.classList.add('hidden');
+
+    if (showToastNotice) {
+      this.showToast('📺 TV Host Display Mode Activated', 'info');
+    }
+  }
+
+  createTvRoom() {
+    this.socket.emit('createTvRoom', {
+      options: { wordsPerPlayer: 2, guessTimeLimit: 45, voteTimeLimit: 30 }
+    }, (res) => {
+      if (res && res.success) {
+        this.state.roomCode = res.roomCode;
+        this.state.isTvMode = true;
+        this.state.isHost = true;
+        this.state.playerId = null;
+        this.state.sessionToken = null;
+
+        document.body.classList.add('mode-tv');
+
+        this.saveSession({
+          roomCode: res.roomCode,
+          isTvMode: true
+        });
+
+        this.updateHeaderRoomPill(res.roomCode);
+        this.handleRoomStateUpdate(res.roomState);
+        this.showToast(`TV Host Room [${res.roomCode}] Created!`, 'success');
+      } else {
+        this.showToast((res && res.error) || 'Failed to create TV room', 'error');
+      }
+    });
+  }
+
+  joinTvRoomByInput() {
+    const input = document.getElementById('tv-cast-code-input');
+    const code = (input ? input.value : '').trim().toUpperCase();
+    if (!code || code.length < 3) {
+      this.showToast('Please enter a 4-letter room code', 'error');
+      return;
+    }
+    this.joinTvRoom(code);
+  }
+
+  joinTvRoom(roomCode, isSilent = false) {
+    const code = (roomCode || '').trim().toUpperCase();
+    this.socket.emit('joinTvRoom', { roomCode: code }, (res) => {
+      if (res && res.success) {
+        this.state.roomCode = res.roomCode;
+        this.state.isTvMode = true;
+        this.state.isHost = Boolean(res.isTvHost);
+        this.state.playerId = null;
+
+        document.body.classList.add('mode-tv');
+
+        this.saveSession({
+          roomCode: res.roomCode,
+          isTvMode: true
+        });
+
+        this.updateHeaderRoomPill(res.roomCode);
+        this.handleRoomStateUpdate(res.roomState);
+        if (!isSilent) this.showToast(`Joined Room [${res.roomCode}] on TV!`, 'success');
+      } else {
+        if (!isSilent) this.showToast((res && res.error) || 'Room not found for TV join', 'error');
+      }
+    });
+  }
+
+  // Sound toggle
+  toggleSound() {
+    if (window.soundEngine) {
+      const isMuted = window.soundEngine.toggleMute();
+      this.updateSoundButtonState();
+      this.showToast(isMuted ? '🔇 Sound Muted' : '🔊 Sound Enabled', 'info');
+    }
+  }
+
+  updateSoundButtonState() {
+    const btn = document.getElementById('btn-toggle-sound');
+    if (btn && window.soundEngine) {
+      btn.textContent = window.soundEngine.isMuted ? '🔇' : '🔊';
+      btn.title = window.soundEngine.isMuted ? 'Unmute Sound' : 'Mute Sound';
+    }
+  }
+
+  // Fullscreen toggle
+  toggleFullscreen() {
+    const btn = document.getElementById('btn-toggle-fullscreen');
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => {
+        if (btn) btn.textContent = '🗗';
+      }).catch(() => {});
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => {
+          if (btn) btn.textContent = '⛶';
+        }).catch(() => {});
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // WELCOME FORM & AVATAR PICKER
+  // -------------------------------------------------------------
   renderAvatarGrid() {
     const grid = document.getElementById('avatar-grid');
     if (!grid) return;
@@ -188,26 +345,40 @@ class AcronymGameApp {
     });
   }
 
-  // Welcome tab switcher: join vs create
   switchWelcomeTab(mode) {
     const tabJoin = document.getElementById('tab-join');
     const tabCreate = document.getElementById('tab-create');
+    const tabTv = document.getElementById('tab-tv');
     const groupRoomCode = document.getElementById('group-room-code');
     const btnText = document.getElementById('btn-welcome-text');
     const roomCodeInput = document.getElementById('room-code-input');
+    const tvLauncher = document.getElementById('tv-welcome-launcher');
+    const playerSection = document.getElementById('player-welcome-section');
 
-    if (mode === 'join') {
-      tabJoin.classList.add('active');
-      tabCreate.classList.remove('active');
-      groupRoomCode.classList.remove('hidden');
-      btnText.textContent = 'Join Room';
-      if (roomCodeInput) roomCodeInput.setAttribute('required', 'true');
+    if (mode === 'tv') {
+      if (tabTv) tabTv.classList.add('active');
+      if (tabJoin) tabJoin.classList.remove('active');
+      if (tabCreate) tabCreate.classList.remove('active');
+      if (tvLauncher) tvLauncher.classList.remove('hidden');
+      if (playerSection) playerSection.classList.add('hidden');
     } else {
-      tabCreate.classList.add('active');
-      tabJoin.classList.remove('active');
-      groupRoomCode.classList.add('hidden');
-      btnText.textContent = 'Create Room';
-      if (roomCodeInput) roomCodeInput.removeAttribute('required');
+      if (tabTv) tabTv.classList.remove('active');
+      if (tvLauncher) tvLauncher.classList.add('hidden');
+      if (playerSection) playerSection.classList.remove('hidden');
+
+      if (mode === 'join') {
+        if (tabJoin) tabJoin.classList.add('active');
+        if (tabCreate) tabCreate.classList.remove('active');
+        if (groupRoomCode) groupRoomCode.classList.remove('hidden');
+        if (btnText) btnText.textContent = 'Join Room';
+        if (roomCodeInput) roomCodeInput.setAttribute('required', 'true');
+      } else {
+        if (tabCreate) tabCreate.classList.add('active');
+        if (tabJoin) tabJoin.classList.remove('active');
+        if (groupRoomCode) groupRoomCode.classList.add('hidden');
+        if (btnText) btnText.textContent = 'Create Room';
+        if (roomCodeInput) roomCodeInput.removeAttribute('required');
+      }
     }
   }
 
@@ -224,14 +395,6 @@ class AcronymGameApp {
     });
   }
 
-  getSegmentVal(containerId, defaultVal = 2) {
-    const container = document.getElementById(containerId);
-    if (!container) return defaultVal;
-    const active = container.querySelector('.segment-btn.active');
-    return active ? parseInt(active.getAttribute('data-val'), 10) : defaultVal;
-  }
-
-  // Handle Welcome Submit (Create or Join)
   handleWelcomeSubmit(e) {
     e.preventDefault();
 
@@ -264,13 +427,15 @@ class AcronymGameApp {
           this.state.roomCode = res.roomCode;
           this.state.playerId = res.playerId;
           this.state.sessionToken = res.sessionToken;
+          this.state.isTvMode = false;
 
           this.saveSession({
             roomCode: res.roomCode,
             playerId: res.playerId,
             sessionToken: res.sessionToken,
             playerName,
-            avatar: this.state.avatar
+            avatar: this.state.avatar,
+            isTvMode: false
           });
 
           this.updateHeaderRoomPill(res.roomCode);
@@ -281,7 +446,7 @@ class AcronymGameApp {
         }
       });
     } else {
-      // Create Room (default 2 words per player, customizable in lobby)
+      // Create Room as Player Host
       this.socket.emit('createRoom', {
         playerName,
         avatar: this.state.avatar,
@@ -292,13 +457,15 @@ class AcronymGameApp {
           this.state.playerId = res.playerId;
           this.state.sessionToken = res.sessionToken;
           this.state.isHost = true;
+          this.state.isTvMode = false;
 
           this.saveSession({
             roomCode: res.roomCode,
             playerId: res.playerId,
             sessionToken: res.sessionToken,
             playerName,
-            avatar: this.state.avatar
+            avatar: this.state.avatar,
+            isTvMode: false
           });
 
           this.updateHeaderRoomPill(res.roomCode);
@@ -311,7 +478,9 @@ class AcronymGameApp {
     }
   }
 
-  // Switch Active Screen
+  // -------------------------------------------------------------
+  // MASTER STATE MACHINE HANDLER
+  // -------------------------------------------------------------
   setScreen(screenId) {
     this.state.currentScreen = screenId;
     const screens = document.querySelectorAll('.screen');
@@ -324,11 +493,15 @@ class AcronymGameApp {
     }
   }
 
-  // Master State Machine Handler
   handleRoomStateUpdate(roomState) {
     if (!roomState) return;
     this.state.roomData = roomState;
-    this.state.isHost = roomState.hostPlayerId === this.state.playerId;
+
+    if (this.state.isTvMode) {
+      this.state.isHost = Boolean(roomState.hasTvHost || !roomState.hostPlayerId);
+    } else {
+      this.state.isHost = Boolean(roomState.hostPlayerId && roomState.hostPlayerId === this.state.playerId);
+    }
 
     this.updateHeaderRoomPill(roomState.roomCode);
 
@@ -362,7 +535,6 @@ class AcronymGameApp {
     }
   }
 
-  // Update Header Room Pill
   updateHeaderRoomPill(roomCode) {
     const pill = document.getElementById('header-room-pill');
     const codeEl = document.getElementById('header-room-code');
@@ -373,7 +545,7 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 2: LOBBY
+  // SCREEN 2: LOBBY (PLAYER & BIG SCREEN TV DISPLAY)
   // -------------------------------------------------------------
   renderLobbyScreen(roomState) {
     const codeEl = document.getElementById('lobby-room-code');
@@ -383,17 +555,52 @@ class AcronymGameApp {
     const hostStartContainer = document.getElementById('host-start-container');
     const waitingNotice = document.getElementById('waiting-host-notice');
     const hostControls = document.querySelectorAll('.host-control');
+    const tvQrWrapper = document.getElementById('tv-lobby-qr-wrapper');
+    const tvQrImg = document.getElementById('tv-lobby-qr-image');
+    const tvJoinUrlText = document.getElementById('tv-join-url-text');
+    const tvDirectJoinUrl = document.getElementById('tv-direct-join-url');
+    const qrModalBtn = document.getElementById('btn-open-qr-modal');
 
     if (codeEl) codeEl.textContent = roomState.roomCode;
     if (countEl) countEl.textContent = roomState.players.length;
 
-    // Render roster
+    // Check if new player joined and play chime
+    const currentCount = roomState.players.length;
+    if (currentCount > this.state.knownPlayersCount && this.state.knownPlayersCount > 0) {
+      if (window.soundEngine) window.soundEngine.playJoin();
+    }
+    this.state.knownPlayersCount = currentCount;
+
+    // TV Mode Lobby UI setup
+    if (this.state.isTvMode) {
+      if (tvQrWrapper) tvQrWrapper.classList.remove('hidden');
+      if (tvDirectJoinUrl) tvDirectJoinUrl.classList.remove('hidden');
+      if (qrModalBtn) qrModalBtn.classList.add('hidden');
+
+      const joinUrl = `${window.location.origin}${window.location.pathname}?room=${roomState.roomCode}`;
+      if (tvJoinUrlText) tvJoinUrlText.textContent = `${window.location.host}/?room=${roomState.roomCode}`;
+
+      if (tvQrImg && (!tvQrImg.src || !tvQrImg.src.includes('data:image'))) {
+        fetch(`/api/qr?url=${encodeURIComponent(joinUrl)}`)
+          .then(r => r.json())
+          .then(data => {
+            if (data && data.qr) tvQrImg.src = data.qr;
+          })
+          .catch(console.error);
+      }
+    } else {
+      if (tvQrWrapper) tvQrWrapper.classList.add('hidden');
+      if (tvDirectJoinUrl) tvDirectJoinUrl.classList.add('hidden');
+      if (qrModalBtn) qrModalBtn.classList.remove('hidden');
+    }
+
+    // Render Player Roster with live checkmarks & role badges
     if (rosterGrid) {
       rosterGrid.innerHTML = '';
       roomState.players.forEach(p => {
         const card = document.createElement('div');
-        const isMe = p.id === this.state.playerId;
-        card.className = `player-badge-card ${isMe ? 'is-me' : ''} ${p.isBot ? 'is-bot' : ''}`;
+        const isMe = Boolean(this.state.playerId && p.id === this.state.playerId);
+        card.className = `player-badge-card ${isMe ? 'is-me' : ''} ${p.isBot ? 'is-bot' : ''} ${this.state.isTvMode ? 'tv-card' : ''}`;
 
         let roleTag = '';
         if (p.isHost) {
@@ -405,7 +612,7 @@ class AcronymGameApp {
         }
 
         let removeBtn = '';
-        if (this.state.isHost && !p.isHost) {
+        if (this.state.isHost && (!p.isHost || this.state.isTvMode)) {
           removeBtn = `<button class="btn-remove-player" title="Remove player" onclick="app.removePlayer('${p.id}')">✕</button>`;
         }
 
@@ -429,7 +636,6 @@ class AcronymGameApp {
         ctrl.style.opacity = '1';
       });
 
-      // Enable/disable start button based on player count
       const startBtn = document.getElementById('btn-start-game');
       if (startBtn) {
         startBtn.disabled = roomState.players.length < 2;
@@ -490,7 +696,7 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 3: SUBMISSION PHASE
+  // SCREEN 3: SUBMISSION PHASE (ZERO SPOILERS ON TV)
   // -------------------------------------------------------------
   renderSubmissionsScreen(roomState) {
     const wordsCount = (roomState.options && roomState.options.wordsPerPlayer) || 2;
@@ -499,53 +705,67 @@ class AcronymGameApp {
 
     const cardsList = document.getElementById('submission-cards-list');
     const myPlayer = roomState.players.find(p => p.id === this.state.playerId);
+    const submitForm = document.getElementById('submissions-form');
+    const tvSubmitBanner = document.getElementById('tv-submit-banner');
 
-    if (cardsList && cardsList.children.length === 0) {
-      cardsList.innerHTML = '';
-      for (let i = 0; i < wordsCount; i++) {
-        const card = document.createElement('div');
-        card.className = 'sub-item-card';
-        card.id = `sub-card-${i}`;
-        card.innerHTML = `
-          <div class="sic-header">
-            <span class="sic-number">ACRONYM #${i + 1}</span>
-            <button type="button" class="sic-idea-btn" onclick="app.openIdeaModalForCard(${i})">
-              💡 Idea / Preset
-            </button>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Acronym / Abbreviation</label>
-            <input type="text" class="form-input sub-acronym-input" id="sub-acronym-${i}" placeholder="e.g. EBITDA, CRUD, STAT" maxlength="12" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Real Definition (The Truth)</label>
-            <input type="text" class="form-input sub-def-input" id="sub-def-${i}" placeholder="e.g. Create, Read, Update, Delete" maxlength="120" required>
-          </div>
-          <div class="form-group" style="margin-bottom:0;">
-            <label class="form-label">Industry / Field</label>
-            <input type="text" class="form-input sub-cat-input" id="sub-cat-${i}" placeholder="e.g. Tech, Healthcare, Finance, Aviation" maxlength="30" value="Tech & Software">
-          </div>
-        `;
-        cardsList.appendChild(card);
-      }
-    }
-
-    // Submission button state
-    const submitBtn = document.getElementById('btn-submit-words');
-    if (myPlayer && myPlayer.hasSubmittedWords) {
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '✓ Acronyms Locked In (Waiting for others...)';
-      }
+    if (this.state.isTvMode) {
+      if (submitForm) submitForm.classList.add('hidden');
+      if (tvSubmitBanner) tvSubmitBanner.classList.remove('hidden');
     } else {
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = 'Lock In My Acronyms ➔';
+      if (submitForm) submitForm.classList.remove('hidden');
+      if (tvSubmitBanner) tvSubmitBanner.classList.add('hidden');
+
+      if (cardsList && cardsList.children.length === 0) {
+        cardsList.innerHTML = '';
+        for (let i = 0; i < wordsCount; i++) {
+          const card = document.createElement('div');
+          card.className = 'sub-item-card';
+          card.id = `sub-card-${i}`;
+          card.innerHTML = `
+            <div class="sic-header">
+              <span class="sic-number">ACRONYM #${i + 1}</span>
+              <button type="button" class="sic-idea-btn" onclick="app.openIdeaModalForCard(${i})">
+                💡 Idea / Preset
+              </button>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Acronym / Abbreviation</label>
+              <input type="text" class="form-input sub-acronym-input" id="sub-acronym-${i}" placeholder="e.g. EBITDA, CRUD, REST" maxlength="12" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Real Definition (The Truth)</label>
+              <input type="text" class="form-input sub-def-input" id="sub-def-${i}" placeholder="e.g. Representational State Transfer" maxlength="120" required>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label">Industry / Field</label>
+              <input type="text" class="form-input sub-cat-input" id="sub-cat-${i}" placeholder="e.g. Tech, Healthcare, Finance, Aviation" maxlength="30" value="Tech & Software">
+            </div>
+          `;
+          cardsList.appendChild(card);
+        }
+      }
+
+      const submitBtn = document.getElementById('btn-submit-words');
+      if (myPlayer && myPlayer.hasSubmittedWords) {
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '✓ Acronyms Locked In (Waiting for others...)';
+        }
+      } else {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = 'Lock In My Acronyms ➔';
+        }
       }
     }
 
-    // Render live player list status
+    // Render live player submission status with checkmarks
     const playersListEl = document.getElementById('submission-players-list');
+    const readyCountEl = document.getElementById('submit-ready-count');
+    const readyCount = roomState.players.filter(p => p.hasSubmittedWords).length;
+
+    if (readyCountEl) readyCountEl.textContent = `${readyCount} / ${roomState.players.length}`;
+
     if (playersListEl) {
       playersListEl.innerHTML = '';
       roomState.players.forEach(p => {
@@ -554,7 +774,7 @@ class AcronymGameApp {
         chip.innerHTML = `
           <span>${p.avatar || '👤'}</span>
           <span>${this.escapeHtml(p.name)}</span>
-          <span>${p.hasSubmittedWords ? '✓' : '...'}</span>
+          <span style="font-weight:800;">${p.hasSubmittedWords ? '✓ READY' : '✍️ Typing...'}</span>
         `;
         playersListEl.appendChild(chip);
       });
@@ -594,25 +814,24 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 4: GUESSING / BLUFFING PHASE
+  // SCREEN 4: GUESSING / BLUFFING (ZERO SPOILERS ON TV)
   // -------------------------------------------------------------
   renderGuessingScreen(roomState) {
     const round = roomState.currentRound;
     if (!round) return;
 
-    // Reset vote selection state
     this.state.selectedVoteOptionId = null;
+    this.state.hasShownVotingShuffle = false;
 
-    // Check if this is a new acronym round compared to what was previously shown
     const isNewRound = this.state.lastRenderedAcronym !== round.acronym;
     this.state.lastRenderedAcronym = round.acronym;
 
-    // Update Round Headers
     const roundNumEl = document.getElementById('guess-round-num');
     const totalRoundsEl = document.getElementById('guess-total-rounds');
     const acroTextEl = document.getElementById('guess-acronym-text');
     const categoryEl = document.getElementById('guess-acronym-category');
     const submitterEl = document.getElementById('guess-acronym-submitter');
+    const promptEl = document.getElementById('guess-acronym-prompt');
 
     if (roundNumEl) roundNumEl.textContent = round.roundNumber;
     if (totalRoundsEl) totalRoundsEl.textContent = round.totalRounds;
@@ -620,7 +839,6 @@ class AcronymGameApp {
     if (categoryEl) categoryEl.textContent = round.category || 'General Industry';
     if (submitterEl) submitterEl.textContent = `Submitted by ${round.submitterName}`;
 
-    // Timer display
     this.handleTimerTick(roomState.timeLeft, 'guess');
 
     const myPlayer = roomState.players.find(p => p.id === this.state.playerId);
@@ -633,46 +851,68 @@ class AcronymGameApp {
     const submittedNotice = document.getElementById('guess-submitted-notice');
     const guessInput = document.getElementById('guess-input');
 
-    if (isAuthor) {
+    if (this.state.isTvMode) {
+      // Big Screen TV Host Mode: Zero spoilers!
       if (actionCard) actionCard.classList.add('hidden');
-      if (authorCard) {
-        authorCard.classList.remove('hidden');
-        const realDefEl = document.getElementById('author-vip-real-def');
-        if (realDefEl) realDefEl.textContent = round.realDefinition || '';
-      }
-    } else {
       if (authorCard) authorCard.classList.add('hidden');
-      if (actionCard) actionCard.classList.remove('hidden');
+      if (promptEl) promptEl.textContent = 'What does this acronym stand for? Players are writing convincing bluffs on their phones!';
+    } else {
+      if (promptEl) promptEl.textContent = 'What does this acronym stand for?';
 
-      // Clear previous bluff whenever a new round starts or when player hasn't guessed yet
-      if (isNewRound || (myPlayer && !myPlayer.hasGuessed)) {
-        if (guessInput && (!myPlayer || !myPlayer.hasGuessed)) {
-          guessInput.value = '';
+      if (isAuthor) {
+        if (actionCard) actionCard.classList.add('hidden');
+        if (authorCard) {
+          authorCard.classList.remove('hidden');
+          const realDefEl = document.getElementById('author-vip-real-def');
+          if (realDefEl) realDefEl.textContent = round.realDefinition || '';
         }
-        if (alertBox) alertBox.classList.add('hidden');
-      }
-
-      if (myPlayer && myPlayer.hasGuessed) {
-        if (form) form.classList.add('hidden');
-        if (submittedNotice) submittedNotice.classList.remove('hidden');
       } else {
-        if (form) form.classList.remove('hidden');
-        if (submittedNotice) submittedNotice.classList.add('hidden');
+        if (authorCard) authorCard.classList.add('hidden');
+        if (actionCard) actionCard.classList.remove('hidden');
+
+        if (isNewRound || (myPlayer && !myPlayer.hasGuessed)) {
+          if (guessInput && (!myPlayer || !myPlayer.hasGuessed)) {
+            guessInput.value = '';
+          }
+          if (alertBox) alertBox.classList.add('hidden');
+        }
+
+        if (myPlayer && myPlayer.hasGuessed) {
+          if (form) form.classList.add('hidden');
+          if (submittedNotice) submittedNotice.classList.remove('hidden');
+        } else {
+          if (form) form.classList.remove('hidden');
+          if (submittedNotice) submittedNotice.classList.add('hidden');
+        }
       }
     }
 
-    // Render live player list status
+    // Live guessing progress indicators with checkmarks
     const guessListEl = document.getElementById('guess-players-list');
+    const readyCountEl = document.getElementById('guess-ready-count');
+
+    const nonAuthorPlayers = roomState.players.filter(p => p.id !== round.submitterId);
+    const guessedCount = nonAuthorPlayers.filter(p => p.hasGuessed).length;
+    if (readyCountEl) readyCountEl.textContent = `${guessedCount} / ${nonAuthorPlayers.length}`;
+
     if (guessListEl) {
       guessListEl.innerHTML = '';
       roomState.players.forEach(p => {
-        if (p.id === round.submitterId) return; // Author sits out
+        const isThisAuthor = p.id === round.submitterId;
         const chip = document.createElement('div');
-        chip.className = `lsc-player-chip ${p.hasGuessed ? 'is-ready' : ''}`;
+        chip.className = `lsc-player-chip ${p.hasGuessed ? 'is-ready' : ''} ${isThisAuthor ? 'is-author-chip' : ''}`;
+
+        let statusText = '🤔 Thinking...';
+        if (isThisAuthor) {
+          statusText = '👑 AUTHOR (Sitting Out)';
+        } else if (p.hasGuessed) {
+          statusText = '✓ BLUFF LOCKED IN';
+        }
+
         chip.innerHTML = `
           <span>${p.avatar || '👤'}</span>
           <span>${this.escapeHtml(p.name)}</span>
-          <span>${p.hasGuessed ? '✓' : '...'}</span>
+          <span style="font-weight:800;">${statusText}</span>
         `;
         guessListEl.appendChild(chip);
       });
@@ -712,7 +952,7 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 5: VOTING PHASE
+  // SCREEN 5: VOTING PHASE (WITH BIG SHUFFLE ANIMATION)
   // -------------------------------------------------------------
   renderVotingScreen(roomState) {
     const round = roomState.currentRound;
@@ -729,30 +969,42 @@ class AcronymGameApp {
     const optionsList = document.getElementById('voting-options-list');
     const myPlayer = roomState.players.find(p => p.id === this.state.playerId);
 
-    if (isAuthor) {
-      if (authorNotice) authorNotice.classList.remove('hidden');
+    // Play card shuffle sound and animate when entering voting phase
+    if (!this.state.hasShownVotingShuffle) {
+      this.state.hasShownVotingShuffle = true;
+      if (window.soundEngine) window.soundEngine.playShuffle();
+    }
+
+    if (this.state.isTvMode) {
+      if (authorNotice) authorNotice.classList.add('hidden');
       if (lockedCard) lockedCard.classList.add('hidden');
     } else {
-      if (authorNotice) authorNotice.classList.add('hidden');
-      if (myPlayer && myPlayer.hasVoted) {
-        if (lockedCard) lockedCard.classList.remove('hidden');
-      } else {
+      if (isAuthor) {
+        if (authorNotice) authorNotice.classList.remove('hidden');
         if (lockedCard) lockedCard.classList.add('hidden');
+      } else {
+        if (authorNotice) authorNotice.classList.add('hidden');
+        if (myPlayer && myPlayer.hasVoted) {
+          if (lockedCard) lockedCard.classList.remove('hidden');
+        } else {
+          if (lockedCard) lockedCard.classList.add('hidden');
+        }
       }
     }
 
     if (optionsList && round.options) {
       optionsList.innerHTML = '';
+      const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-      round.options.forEach(opt => {
+      round.options.forEach((opt, idx) => {
         const card = document.createElement('div');
         const isMyBluff = Boolean(opt.isMyBluff);
         const isMyReal = Boolean(opt.isMyRealAnswer);
         const isSelected = this.state.selectedVoteOptionId === opt.id;
-        const isDisabled = isAuthor || isMyBluff || isMyReal || (myPlayer && myPlayer.hasVoted);
+        const isDisabled = this.state.isTvMode || isAuthor || isMyBluff || isMyReal || (myPlayer && myPlayer.hasVoted);
 
-        card.className = `vote-option-card ${isDisabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`;
-        
+        card.className = `vote-option-card shuffle-in ${isDisabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`;
+
         let badge = '';
         if (isMyReal) {
           badge = '<span class="voc-badge voc-badge-myreal">Your Real Answer</span>';
@@ -760,8 +1012,10 @@ class AcronymGameApp {
           badge = '<span class="voc-badge voc-badge-mybluff">Your Bluff</span>';
         }
 
+        const letterBadge = `<span class="voc-letter" style="display:inline-block; font-weight:800; color:var(--accent-gold); margin-right:8px;">${letters[idx % letters.length]}.</span>`;
+
         card.innerHTML = `
-          <div class="voc-text">${this.escapeHtml(opt.text)}</div>
+          <div class="voc-text">${letterBadge} ${this.escapeHtml(opt.text)}</div>
           ${badge}
         `;
 
@@ -772,13 +1026,43 @@ class AcronymGameApp {
         optionsList.appendChild(card);
       });
     }
+
+    // Live Voting Status Tracker
+    const voteListEl = document.getElementById('vote-players-list');
+    const voteReadyCountEl = document.getElementById('vote-ready-count');
+
+    const nonAuthorPlayers = roomState.players.filter(p => p.id !== round.submitterId);
+    const votedCount = nonAuthorPlayers.filter(p => p.hasVoted).length;
+    if (voteReadyCountEl) voteReadyCountEl.textContent = `${votedCount} / ${nonAuthorPlayers.length}`;
+
+    if (voteListEl) {
+      voteListEl.innerHTML = '';
+      roomState.players.forEach(p => {
+        const isThisAuthor = p.id === round.submitterId;
+        const chip = document.createElement('div');
+        chip.className = `lsc-player-chip ${p.hasVoted ? 'is-ready' : ''} ${isThisAuthor ? 'is-author-chip' : ''}`;
+
+        let statusText = '🗳️ Deciding...';
+        if (isThisAuthor) {
+          statusText = '👑 AUTHOR (Watching)';
+        } else if (p.hasVoted) {
+          statusText = '✓ VOTE CAST';
+        }
+
+        chip.innerHTML = `
+          <span>${p.avatar || '👤'}</span>
+          <span>${this.escapeHtml(p.name)}</span>
+          <span style="font-weight:800;">${statusText}</span>
+        `;
+        voteListEl.appendChild(chip);
+      });
+    }
   }
 
   handleOptionVoteClick(optionId) {
     if (this.state.selectedVoteOptionId === optionId) return;
     this.state.selectedVoteOptionId = optionId;
 
-    // Re-render voting cards to show selected state
     const cards = document.querySelectorAll('.vote-option-card');
     cards.forEach(card => card.classList.remove('selected'));
 
@@ -794,7 +1078,7 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 6: REVEAL PHASE
+  // SCREEN 6: DRAMATIC STEP-BY-STEP REVEAL & ROUND SCORING
   // -------------------------------------------------------------
   renderRevealScreen(roomState) {
     const round = roomState.currentRound;
@@ -811,12 +1095,21 @@ class AcronymGameApp {
     if (titleEl) titleEl.textContent = data.acronym;
     if (catEl) catEl.textContent = data.category || 'General Industry';
 
+    // Play fanfare / sting sequence on new reveal entry
+    if (this.state.lastRevealAcronym !== data.acronym) {
+      this.state.lastRevealAcronym = data.acronym;
+      if (window.soundEngine) {
+        setTimeout(() => window.soundEngine.playRealReveal(), 400);
+      }
+    }
+
     if (cardsContainer) {
       cardsContainer.innerHTML = '';
 
-      data.options.forEach(opt => {
+      data.options.forEach((opt, idx) => {
         const card = document.createElement('div');
-        card.className = `reveal-card ${opt.isReal ? 'is-real' : 'is-bluff'}`;
+        card.className = `reveal-card ${opt.isReal ? 'is-real revealed-real' : 'is-bluff revealed-bluff'}`;
+        card.style.animationDelay = `${idx * 0.15}s`;
 
         let voterChips = '';
         if (opt.voters && opt.voters.length > 0) {
@@ -825,7 +1118,7 @@ class AcronymGameApp {
             return `<span class="rc-voter-chip ${chipClass}">${v.avatar || '👤'} ${this.escapeHtml(v.name)}</span>`;
           }).join('');
         } else {
-          voterChips = '<span style="font-size:0.75rem; color:var(--text-muted);">No votes</span>';
+          voterChips = '<span style="font-size:0.8rem; color:var(--text-muted);">No votes</span>';
         }
 
         let authorLabel = '';
@@ -854,7 +1147,7 @@ class AcronymGameApp {
             ${pointsGainBadge}
           </div>
           <div class="rc-voters-list">
-            <span style="font-size:0.75rem; font-weight:700; color:var(--text-secondary);">Voters:</span>
+            <span style="font-size:0.8rem; font-weight:700; color:var(--text-secondary);">Voters:</span>
             ${voterChips}
           </div>
         `;
@@ -866,13 +1159,14 @@ class AcronymGameApp {
       if (data.earnedAuthorBonus) {
         const bonusCard = document.createElement('div');
         bonusCard.className = 'card';
-        bonusCard.style.border = '1px solid var(--accent-gold)';
-        bonusCard.style.background = 'var(--accent-gold-light)';
-        bonusCard.style.padding = '14px 18px';
+        bonusCard.style.border = '2px solid var(--accent-gold)';
+        bonusCard.style.background = 'radial-gradient(circle, rgba(245,158,11,0.2) 0%, rgba(19,30,50,0.95) 100%)';
+        bonusCard.style.padding = '18px 24px';
         bonusCard.style.textAlign = 'center';
+        bonusCard.style.marginTop = '12px';
         bonusCard.innerHTML = `
-          <div style="font-weight:800; color:var(--accent-gold); font-size:0.95rem;">👑 MASTER OF DECEPTION!</div>
-          <div style="font-size:0.85rem; color:var(--text-primary); margin-top:2px;">
+          <div style="font-weight:900; color:var(--accent-gold); font-size:1.15rem; letter-spacing:0.04em;">👑 MASTER OF DECEPTION!</div>
+          <div style="font-size:0.95rem; color:var(--text-primary); margin-top:4px;">
             Nobody found the real answer! <b>${this.escapeHtml(data.submitterName)}</b> earns a <b>+${roomState.options.pointsForAuthorBonus || 300} pts</b> Author Bonus!
           </div>
         `;
@@ -907,7 +1201,7 @@ class AcronymGameApp {
       if (hostActions) hostActions.classList.remove('hidden');
       const isLastRound = roomState.currentAcronymIndex + 1 >= roomState.totalAcronyms;
       if (nextBtn) {
-        nextBtn.textContent = isLastRound ? '🏆 View Final Scoreboard' : 'Next Acronym ➔';
+        nextBtn.textContent = isLastRound ? '🏆 View Final Scoreboard ➔' : 'Next Acronym ➔';
       }
     } else {
       if (hostActions) hostActions.classList.add('hidden');
@@ -919,7 +1213,7 @@ class AcronymGameApp {
     this.socket.emit('nextRound', {});
   }
 
-  // Helper to compute standard competition ranking (with tie support)
+  // Competition ranking helper with tie-support
   computeRankedPlayers(players) {
     if (!players || !Array.isArray(players)) return [];
     const sorted = [...players].sort((a, b) => {
@@ -944,10 +1238,11 @@ class AcronymGameApp {
   }
 
   // -------------------------------------------------------------
-  // SCREEN 7: FINAL SCOREBOARD & PODIUM
+  // SCREEN 7: FINAL SCOREBOARD & 3D PODIUM
   // -------------------------------------------------------------
   renderScoreboardScreen(roomState) {
-    window.confetti.burst(120);
+    if (window.confetti) window.confetti.burst(150);
+    if (window.soundEngine) window.soundEngine.playVictory();
 
     const rankedPlayers = this.computeRankedPlayers(roomState.players);
     const podiumEl = document.getElementById('podium-display');
@@ -955,11 +1250,9 @@ class AcronymGameApp {
     if (podiumEl) {
       podiumEl.innerHTML = '';
 
-      // Get players eligible for podium (rank <= 3)
       let podiumPlayers = rankedPlayers.filter(p => p.rank <= 3);
       if (podiumPlayers.length === 0) podiumPlayers = rankedPlayers.slice(0, 3);
 
-      // Reorder for traditional center-peak podium if exactly 1st, 2nd, 3rd exist with no 1st-place tie
       let displayOrder = [...podiumPlayers];
       if (podiumPlayers.length === 3 && podiumPlayers[0].rank === 1 && podiumPlayers[1].rank === 2 && podiumPlayers[2].rank === 3) {
         displayOrder = [podiumPlayers[1], podiumPlayers[0], podiumPlayers[2]];
@@ -992,7 +1285,6 @@ class AcronymGameApp {
       });
     }
 
-    // Full leaderboard list with tie badges
     const finalList = document.getElementById('final-rankings-list');
     if (finalList) {
       finalList.innerHTML = '';
@@ -1013,7 +1305,6 @@ class AcronymGameApp {
       });
     }
 
-    // Play again buttons
     const playAgainBtn = document.getElementById('btn-play-again');
     if (playAgainBtn) {
       playAgainBtn.style.display = this.state.isHost ? 'block' : 'none';
@@ -1041,20 +1332,33 @@ class AcronymGameApp {
   // -------------------------------------------------------------
   // TIMER TICK HANDLER
   // -------------------------------------------------------------
-  handleTimerTick(timeLeft, phase = 'guess') {
-    const badge = document.getElementById(`${phase}-timer-badge`);
-    const valEl = document.getElementById(`${phase}-timer-val`);
-
-    if (valEl) {
-      valEl.textContent = timeLeft > 0 ? timeLeft : '0';
+  handleTimerTick(timeLeft, phase = null) {
+    if (this.state.roomData) {
+      this.state.roomData.timeLeft = timeLeft;
     }
 
-    if (badge) {
-      if (timeLeft <= 5 && timeLeft > 0) {
-        badge.classList.add('urgent');
-      } else {
-        badge.classList.remove('urgent');
+    const phases = phase ? [phase] : ['guess', 'vote'];
+    phases.forEach(p => {
+      const badge = document.getElementById(`${p}-timer-badge`);
+      const valEl = document.getElementById(`${p}-timer-val`);
+
+      if (valEl) {
+        valEl.textContent = timeLeft > 0 ? timeLeft : '0';
       }
+
+      if (badge) {
+        if (timeLeft <= 5 && timeLeft > 0) {
+          badge.classList.add('urgent');
+        } else {
+          badge.classList.remove('urgent');
+        }
+      }
+    });
+
+    if (timeLeft <= 5 && timeLeft > 0) {
+      if (window.soundEngine) window.soundEngine.playTick(true);
+    } else if (window.soundEngine && timeLeft > 0 && timeLeft <= 10) {
+      window.soundEngine.playTick(false);
     }
   }
 
@@ -1101,7 +1405,6 @@ class AcronymGameApp {
     }
   }
 
-  // IDEA MODAL
   openIdeaModal() {
     this.state.activeIdeaCardIndex = null;
     this.renderIdeaModal();
