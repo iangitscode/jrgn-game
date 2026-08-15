@@ -1493,7 +1493,8 @@ body {
   font-weight: 800;
   font-size: 0.85rem;
   color: var(--text-muted);
-  width: 18px;
+  min-width: 36px;
+  text-align: left;
 }
 
 .rl-avatar {
@@ -1570,6 +1571,7 @@ body {
   gap: 12px;
   margin-bottom: 32px;
   padding: 0 10px;
+  flex-wrap: wrap;
 }
 
 .podium-pillar {

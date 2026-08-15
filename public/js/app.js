@@ -880,15 +880,16 @@ class AcronymGameApp {
       }
     }
 
-    // Render Round Leaderboard
+    // Render Round Leaderboard with tie ranking support
     if (leaderboardList && data.leaderboard) {
       leaderboardList.innerHTML = '';
-      data.leaderboard.forEach((p, idx) => {
+      const rankedRoundPlayers = this.computeRankedPlayers(data.leaderboard);
+      rankedRoundPlayers.forEach(p => {
         const item = document.createElement('div');
         item.className = 'rl-item';
         item.innerHTML = `
           <div class="rl-left">
-            <span class="rl-rank">#${idx + 1}</span>
+            <span class="rl-rank">${p.rankLabel}</span>
             <span class="rl-avatar">${p.avatar || '👤'}</span>
             <span class="rl-name">${this.escapeHtml(p.name)}</span>
           </div>
@@ -918,51 +919,89 @@ class AcronymGameApp {
     this.socket.emit('nextRound', {});
   }
 
+  // Helper to compute standard competition ranking (with tie support)
+  computeRankedPlayers(players) {
+    if (!players || !Array.isArray(players)) return [];
+    const sorted = [...players].sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    let currentRank = 1;
+    return sorted.map((p, idx) => {
+      if (idx > 0 && p.score < sorted[idx - 1].score) {
+        currentRank = idx + 1;
+      }
+      const isTied = (idx > 0 && p.score === sorted[idx - 1].score) ||
+                     (idx < sorted.length - 1 && p.score === sorted[idx + 1].score);
+      return {
+        ...p,
+        rank: currentRank,
+        isTied: isTied,
+        rankLabel: isTied ? `T-#${currentRank}` : `#${currentRank}`
+      };
+    });
+  }
+
   // -------------------------------------------------------------
   // SCREEN 7: FINAL SCOREBOARD & PODIUM
   // -------------------------------------------------------------
   renderScoreboardScreen(roomState) {
     window.confetti.burst(120);
 
-    const sortedPlayers = [...roomState.players].sort((a, b) => b.score - a.score);
+    const rankedPlayers = this.computeRankedPlayers(roomState.players);
+    const podiumEl = document.getElementById('podium-display');
 
-    // Podium (1st, 2nd, 3rd)
-    const p1 = sortedPlayers[0];
-    const p2 = sortedPlayers[1];
-    const p3 = sortedPlayers[2];
+    if (podiumEl) {
+      podiumEl.innerHTML = '';
 
-    if (p1) {
-      document.getElementById('pod-avatar-1st').textContent = p1.avatar || '🥇';
-      document.getElementById('pod-name-1st').textContent = p1.name;
-      document.getElementById('pod-score-1st').textContent = `${p1.score} pts`;
-    }
-    if (p2) {
-      document.getElementById('pod-avatar-2nd').textContent = p2.avatar || '🥈';
-      document.getElementById('pod-name-2nd').textContent = p2.name;
-      document.getElementById('pod-score-2nd').textContent = `${p2.score} pts`;
-      document.getElementById('podium-2nd').style.display = 'flex';
-    } else {
-      document.getElementById('podium-2nd').style.display = 'none';
-    }
-    if (p3) {
-      document.getElementById('pod-avatar-3rd').textContent = p3.avatar || '🥉';
-      document.getElementById('pod-name-3rd').textContent = p3.name;
-      document.getElementById('pod-score-3rd').textContent = `${p3.score} pts`;
-      document.getElementById('podium-3rd').style.display = 'flex';
-    } else {
-      document.getElementById('podium-3rd').style.display = 'none';
+      // Get players eligible for podium (rank <= 3)
+      let podiumPlayers = rankedPlayers.filter(p => p.rank <= 3);
+      if (podiumPlayers.length === 0) podiumPlayers = rankedPlayers.slice(0, 3);
+
+      // Reorder for traditional center-peak podium if exactly 1st, 2nd, 3rd exist with no 1st-place tie
+      let displayOrder = [...podiumPlayers];
+      if (podiumPlayers.length === 3 && podiumPlayers[0].rank === 1 && podiumPlayers[1].rank === 2 && podiumPlayers[2].rank === 3) {
+        displayOrder = [podiumPlayers[1], podiumPlayers[0], podiumPlayers[2]];
+      } else if (podiumPlayers.length === 2 && podiumPlayers[0].rank === 1 && podiumPlayers[1].rank === 2) {
+        displayOrder = [podiumPlayers[1], podiumPlayers[0]];
+      }
+
+      displayOrder.forEach(p => {
+        const pillar = document.createElement('div');
+        let pillarClass = 'pillar-3rd';
+        let pillarBlockText = p.isTied ? `T-${p.rank}` : `${p.rank}`;
+        let crown = '';
+
+        if (p.rank === 1) {
+          pillarClass = 'pillar-1st';
+          crown = '<div class="crown-icon">👑</div>';
+        } else if (p.rank === 2) {
+          pillarClass = 'pillar-2nd';
+        }
+
+        pillar.className = `podium-pillar ${pillarClass}`;
+        pillar.innerHTML = `
+          ${crown}
+          <div class="podium-avatar">${p.avatar || '👤'}</div>
+          <div class="podium-name" title="${this.escapeHtml(p.name)}">${this.escapeHtml(p.name)}</div>
+          <div class="podium-score">${p.score} pts</div>
+          <div class="pillar-block">${pillarBlockText}</div>
+        `;
+        podiumEl.appendChild(pillar);
+      });
     }
 
-    // Full leaderboard list
+    // Full leaderboard list with tie badges
     const finalList = document.getElementById('final-rankings-list');
     if (finalList) {
       finalList.innerHTML = '';
-      sortedPlayers.forEach((p, idx) => {
+      rankedPlayers.forEach(p => {
         const item = document.createElement('div');
         item.className = 'rl-item';
         item.innerHTML = `
           <div class="rl-left">
-            <span class="rl-rank">#${idx + 1}</span>
+            <span class="rl-rank">${p.rankLabel}</span>
             <span class="rl-avatar">${p.avatar || '👤'}</span>
             <span class="rl-name">${this.escapeHtml(p.name)}</span>
           </div>
