@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>jrgn | The Industry Jargon & Acronym Game</title>
+  <meta name="description" content="jrgn — A real-time multiplayer game where players submit industry acronyms, bluff fake definitions, and guess the truth!">
+  <meta name="theme-color" content="#0F172A">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top App Navigation -->
+  <header class="app-header" id="app-header">
+    <div class="header-content">
+      <div class="brand" id="brand-logo" onclick="app.showHome()">
+        <span class="brand-icon">⚡</span>
+        <span class="brand-name">jr<span class="brand-highlight">gn</span></span>
+      </div>
+
+      <div class="header-right">
+        <!-- Room Code Pill (Hidden on welcome screen) -->
+        <div class="room-pill hidden" id="header-room-pill" onclick="app.openQRModal()">
+          <span class="room-pill-label">ROOM</span>
+          <span class="room-pill-code" id="header-room-code">----</span>
+          <span class="room-pill-icon" title="View QR Code & Share">📱</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Container -->
+  <main class="game-container" id="game-container">
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- ========================================== -->
+    <!-- 1. SCREEN: WELCOME / JOIN / CREATE         -->
+    <!-- ========================================== -->
+    <section class="screen active" id="screen-welcome">
+      <div class="welcome-card">
+        <div class="welcome-hero">
+          <div class="badge-tag">PARTY GAME FOR TEAMS & FRIENDS</div>
+          <h1 class="welcome-title">Bluff. Guess. Fool Your Friends.</h1>
+          <p class="welcome-desc">Submit your industry's wildest acronyms. Write believable fake definitions. Spot the real truth!</p>
+        </div>
+
+        <!-- Reconnect Notice Card (shows if previous active session exists) -->
+        <div class="reconnect-banner hidden" id="reconnect-banner">
+          <div class="reconnect-info">
+            <span class="reconnect-icon">🔄</span>
+            <div>
+              <div class="reconnect-title">Active Session Found</div>
+              <div class="reconnect-desc" id="reconnect-desc">Room: <b id="rec-room-code">ABCD</b> as <b id="rec-player-name">Alex</b></div>
+            </div>
+          </div>
+          <div class="reconnect-actions">
+            <button class="btn btn-secondary btn-sm" onclick="app.dismissReconnect()">Forget</button>
+            <button class="btn btn-primary btn-sm" onclick="app.executeRejoin()">Rejoin Game</button>
+          </div>
+        </div>
+
+        <!-- Welcome Tabs -->
+        <div class="tab-group" role="tablist">
+          <button class="tab-btn active" id="tab-join" onclick="app.switchWelcomeTab('join')">Join Room</button>
+          <button class="tab-btn" id="tab-create" onclick="app.switchWelcomeTab('create')">Create Room</button>
+        </div>
+
+        <!-- Form: Join/Create -->
+        <form class="welcome-form" id="welcome-form" onsubmit="app.handleWelcomeSubmit(event)">
+          
+          <!-- Nickname -->
+          <div class="form-group">
+            <label for="player-name" class="form-label">Your Nickname</label>
+            <input type="text" id="player-name" class="form-input" placeholder="e.g., Captain Acronym" maxlength="18" required autofocus>
+          </div>
+
+          <!-- Avatar Picker -->
+          <div class="form-group">
+            <label class="form-label">Choose Avatar</label>
+            <div class="avatar-grid" id="avatar-grid">
+              <!-- Rendered dynamically -->
+            </div>
+            <input type="hidden" id="selected-avatar" value="🚀">
+          </div>
+
+          <!-- Room Code Input (Only visible in Join mode) -->
+          <div class="form-group" id="group-room-code">
+            <label for="room-code-input" class="form-label">4-Letter Room Code</label>
+            <div class="code-input-wrapper">
+              <input type="text" id="room-code-input" class="form-input code-input" placeholder="ABCD" maxlength="4" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+            </div>
+          </div>
+
+          <!-- Submit Button -->
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-welcome-action">
+            <span id="btn-welcome-text">Join Room</span> ➔
+          </button>
+        </form>
+
+        <!-- Quick How to Play -->
+        <div class="how-to-play-card">
+          <div class="htp-title">How It Works</div>
+          <div class="htp-steps">
+            <div class="htp-step">
+              <span class="step-num">1</span>
+              <span>Each player enters acronyms & true definitions from their field.</span>
+            </div>
+            <div class="htp-step">
+              <span class="step-num">2</span>
+              <span>Everyone writes believable bluffs for each other's acronyms.</span>
+            </div>
+            <div class="htp-step">
+              <span class="step-num">3</span>
+              <span>Vote for the truth! Gain points for guessing right & fooling others.</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 2. SCREEN: LOBBY                           -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-lobby">
+      <div class="lobby-grid">
+        
+        <!-- Left / Top Column: Room Code & Players -->
+        <div class="lobby-main">
+          <!-- Room Code Card -->
+          <div class="room-code-card">
+            <div class="rcc-header">
+              <span class="rcc-badge">ROOM CODE</span>
+              <button class="btn btn-ghost btn-sm" onclick="app.openQRModal()">
+                📱 Phone QR Code
+              </button>
+            </div>
+            <div class="rcc-code-display" id="lobby-room-code" onclick="app.copyRoomLink()" title="Click to copy join link">
+              ----
+            </div>
+            <div class="rcc-sub">
+              <span>Tap code to copy share link</span>
+              <span class="copy-hint" id="copy-hint">📋 Copied!</span>
+            </div>
+          </div>
+
+          <!-- Player Roster -->
+          <div class="card roster-card">
+            <div class="card-header-row">
+              <h2 class="card-title">Players in Room (<span id="lobby-player-count">0</span>)</h2>
+              <div id="host-bot-btn-container">
+                <button class="btn btn-secondary btn-sm" id="btn-add-bot" onclick="app.addBot()">
+                  🤖 + Add AI Bot
+                </button>
+              </div>
+            </div>
+
+            <div class="player-roster-grid" id="lobby-roster-grid">
+              <!-- Rendered dynamically -->
+            </div>
+
+            <div class="lobby-min-players-hint" id="lobby-min-hint">
+              Minimum 2 players needed to begin (or add an AI Bot to test solo!)
+            </div>
+          </div>
+        </div>
+
+        <!-- Right / Bottom Column: Host Game Settings & Start -->
+        <div class="lobby-sidebar">
+          <div class="card settings-card" id="lobby-settings-card">
+            <h2 class="card-title">Game Settings</h2>
+
+            <!-- Words Per Player -->
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title">Acronyms per Player</div>
+                <div class="setting-desc">How many words each player submits</div>
+              </div>
+              <div class="segmented-control host-control" id="opt-words-control">
+                <button type="button" class="segment-btn" data-val="1" onclick="app.updateOption('wordsPerPlayer', 1)">1</button>
+                <button type="button" class="segment-btn active" data-val="2" onclick="app.updateOption('wordsPerPlayer', 2)">2</button>
+                <button type="button" class="segment-btn" data-val="3" onclick="app.updateOption('wordsPerPlayer', 3)">3</button>
+                <button type="button" class="segment-btn" data-val="4" onclick="app.updateOption('wordsPerPlayer', 4)">4</button>
+              </div>
+            </div>
+
+            <!-- Guess Timer -->
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title">Bluff Timer</div>
+                <div class="setting-desc">Time to write fake definitions</div>
+              </div>
+              <div class="segmented-control host-control" id="opt-guess-time-control">
+                <button type="button" class="segment-btn" data-val="30" onclick="app.updateOption('guessTimeLimit', 30)">30s</button>
+                <button type="button" class="segment-btn active" data-val="45" onclick="app.updateOption('guessTimeLimit', 45)">45s</button>
+                <button type="button" class="segment-btn" data-val="60" onclick="app.updateOption('guessTimeLimit', 60)">60s</button>
+                <button type="button" class="segment-btn" data-val="0" onclick="app.updateOption('guessTimeLimit', 0)">∞</button>
+              </div>
+            </div>
+
+            <!-- Vote Timer -->
+            <div class="setting-item">
+              <div class="setting-info">
+                <div class="setting-title">Vote Timer</div>
+                <div class="setting-desc">Time to pick the real definition</div>
+              </div>
+              <div class="segmented-control host-control" id="opt-vote-time-control">
+                <button type="button" class="segment-btn" data-val="20" onclick="app.updateOption('voteTimeLimit', 20)">20s</button>
+                <button type="button" class="segment-btn active" data-val="30" onclick="app.updateOption('voteTimeLimit', 30)">30s</button>
+                <button type="button" class="segment-btn" data-val="45" onclick="app.updateOption('voteTimeLimit', 45)">45s</button>
+              </div>
+            </div>
+
+            <!-- Scoring Breakdown -->
+            <div class="scoring-rules-box">
+              <div class="srb-item"><span class="srb-pts">+1000</span> Guessing Real Answer</div>
+              <div class="srb-item"><span class="srb-pts">+500</span> Each player fooled by your bluff</div>
+              <div class="srb-item"><span class="srb-pts">+300</span> Author bonus if nobody guesses real</div>
+            </div>
+
+            <!-- Action Area -->
+            <div class="lobby-action-area">
+              <div id="host-start-container">
+                <button class="btn btn-primary btn-block btn-lg" id="btn-start-game" onclick="app.startGame()">
+                  🚀 Start Game
+                </button>
+              </div>
+              <div class="waiting-host-notice hidden" id="waiting-host-notice">
+                <div class="pulse-dot"></div>
+                <span>Waiting for host to start the game...</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 3. SCREEN: SUBMISSION PHASE                -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-submit">
+      <div class="submit-container">
+        
+        <div class="phase-header">
+          <div class="badge-tag">PHASE 1: SUBMISSIONS</div>
+          <h2 class="phase-title">Enter Your Industry Acronyms</h2>
+          <p class="phase-desc">Submit <span id="submit-words-count-label">2</span> acronyms with their true meanings. You can also pick from presets!</p>
+        </div>
+
+        <!-- Form for Submissions -->
+        <form class="submissions-form" id="submissions-form" onsubmit="app.handleWordsSubmit(event)">
+          <div class="submission-cards-list" id="submission-cards-list">
+            <!-- Rendered dynamically based on options.wordsPerPlayer -->
+          </div>
+
+          <div class="submit-footer-actions">
+            <button type="button" class="btn btn-secondary" onclick="app.openIdeaModal()">
+              💡 Browse Idea Library
+            </button>
+            <button type="submit" class="btn btn-primary btn-lg" id="btn-submit-words">
+              Lock In My Acronyms ➔
+            </button>
+          </div>
+        </form>
+
+        <!-- Live Submissions Tracker -->
+        <div class="live-status-card" id="submission-status-card">
+          <div class="lsc-title">Player Submission Status</div>
+          <div class="lsc-player-list" id="submission-players-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 4. SCREEN: GUESSING / BLUFFING PHASE       -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-guess">
+      <div class="round-container">
+
+        <!-- Round Header / Progress & Timer -->
+        <div class="round-top-bar">
+          <div class="round-progress-badge">
+            ROUND <span id="guess-round-num">1</span> OF <span id="guess-total-rounds">4</span>
+          </div>
+
+          <div class="timer-badge" id="guess-timer-badge">
+            <span class="timer-icon">⏱️</span>
+            <span class="timer-val" id="guess-timer-val">45</span>s
+          </div>
+        </div>
+
+        <!-- Big Acronym Showcase Card -->
+        <div class="acronym-showcase-card">
+          <div class="asc-meta">
+            <span class="category-pill" id="guess-acronym-category">Tech & Software</span>
+            <span class="submitter-pill" id="guess-acronym-submitter">Submitted by Alex</span>
+          </div>
+          <div class="asc-acronym" id="guess-acronym-text">
+            SaaS
+          </div>
+          <div class="asc-prompt">What does this acronym stand for?</div>
+        </div>
+
+        <!-- Non-Author Bluff Submission Card -->
+        <div class="card guess-action-card" id="guess-player-action-card">
+          <div class="gac-header">
+            <h3 class="gac-title">Write Your Bluff Definition</h3>
+            <p class="gac-desc">Create a convincing fake meaning to trick other players into picking your answer!</p>
+          </div>
+
+          <form id="guess-form" onsubmit="app.handleGuessSubmit(event)">
+            <div class="form-group">
+              <input type="text" id="guess-input" class="form-input form-input-lg" placeholder="Type your bluff or real guess..." maxlength="120" required autocomplete="off">
+            </div>
+
+            <!-- Feedback Alert (e.g. Too close to real answer) -->
+            <div class="alert-box alert-warning hidden" id="guess-alert-box">
+              <span id="guess-alert-text"></span>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-submit-guess">
+              Submit Bluff ➔
+            </button>
+          </form>
+
+          <div class="guess-submitted-notice hidden" id="guess-submitted-notice">
+            <span class="checkmark-icon">✓</span>
+            <div>
+              <div class="gsn-title">Bluff Locked In!</div>
+              <div class="gsn-sub">Waiting for other players to finish guessing...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Author VIP Screen (For the player who submitted the acronym) -->
+        <div class="card author-vip-card hidden" id="guess-author-vip-card">
+          <div class="avc-badge">👑 YOU ARE THE AUTHOR</div>
+          <h3 class="avc-title">This is your acronym!</h3>
+          <p class="avc-desc">Sit back and relax while the other players try to bluff their way to victory.</p>
+          
+          <div class="author-real-def-box">
+            <span class="ard-label">THE REAL DEFINITION:</span>
+            <div class="ard-text" id="author-vip-real-def">Software as a Service</div>
+          </div>
+
+          <div class="avc-bonus-hint">
+            💡 If nobody guesses the real definition, you win a <b>+300 pts author bonus!</b>
+          </div>
+        </div>
+
+        <!-- Live Player Guessing Progress -->
+        <div class="live-status-card" id="guess-status-card">
+          <div class="lsc-title">Players Guessing</div>
+          <div class="lsc-player-list" id="guess-players-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 5. SCREEN: VOTING PHASE                    -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-vote">
+      <div class="round-container">
+
+        <!-- Round Header / Progress & Timer -->
+        <div class="round-top-bar">
+          <div class="round-progress-badge">
+            VOTING PHASE • <span id="vote-acronym-name">SaaS</span>
+          </div>
+
+          <div class="timer-badge" id="vote-timer-badge">
+            <span class="timer-icon">⏱️</span>
+            <span class="timer-val" id="vote-timer-val">30</span>s
+          </div>
+        </div>
+
+        <div class="phase-header vote-header">
+          <h2 class="phase-title">Which one is the REAL definition?</h2>
+          <p class="phase-desc" id="vote-instruction-desc">One is real, the others are clever bluffs submitted by your friends!</p>
+        </div>
+
+        <!-- Author Spectating Notice -->
+        <div class="author-voting-notice hidden" id="author-voting-notice">
+          <span class="avn-icon">👀</span>
+          <div>
+            <b>You authored this acronym!</b> Watch as your friends fall for bluffs or find the truth!
+          </div>
+        </div>
+
+        <!-- Options Voting Cards Grid -->
+        <div class="voting-options-list" id="voting-options-list">
+          <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Vote Submitted Notice -->
+        <div class="card vote-locked-card hidden" id="vote-locked-card">
+          <span class="checkmark-icon">✓</span>
+          <div>
+            <div class="vlc-title">Vote Submitted!</div>
+            <div class="vlc-sub">Tallying results...</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 6. SCREEN: REVEAL & ROUND SCORING          -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-reveal">
+      <div class="reveal-container">
+
+        <div class="phase-header">
+          <div class="badge-tag">ROUND BREAKDOWN</div>
+          <h2 class="phase-title" id="reveal-acronym-title">SaaS</h2>
+          <div class="category-pill" id="reveal-acronym-category">Tech & Software</div>
+        </div>
+
+        <!-- Step-by-step reveal card container -->
+        <div class="reveal-cards-container" id="reveal-cards-container">
+          <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Round Scoreboard Leaderboard -->
+        <div class="card round-leaderboard-card">
+          <h3 class="card-title">Current Standings</h3>
+          <div class="reveal-leaderboard-list" id="reveal-leaderboard-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Host Action Button -->
+        <div class="reveal-host-actions" id="reveal-host-actions">
+          <button class="btn btn-primary btn-lg btn-block" id="btn-next-round" onclick="app.nextRound()">
+            Next Acronym ➔
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- 7. SCREEN: FINAL SCOREBOARD & PODIUM       -->
+    <!-- ========================================== -->
+    <section class="screen" id="screen-scoreboard">
+      <div class="scoreboard-container">
+        
+        <div class="podium-header">
+          <div class="trophy-emoji">🏆</div>
+          <h1 class="scoreboard-title">GAME OVER!</h1>
+          <p class="scoreboard-sub">Final Scores & Podium</p>
+        </div>
+
+        <!-- Podium Top 3 -->
+        <div class="podium-display" id="podium-display">
+          <!-- 2nd Place -->
+          <div class="podium-pillar pillar-2nd" id="podium-2nd">
+            <div class="podium-avatar" id="pod-avatar-2nd">🥈</div>
+            <div class="podium-name" id="pod-name-2nd">Player 2</div>
+            <div class="podium-score" id="pod-score-2nd">0 pts</div>
+            <div class="pillar-block">2</div>
+          </div>
+          <!-- 1st Place -->
+          <div class="podium-pillar pillar-1st" id="podium-1st">
+            <div class="crown-icon">👑</div>
+            <div class="podium-avatar" id="pod-avatar-1st">🥇</div>
+            <div class="podium-name" id="pod-name-1st">Player 1</div>
+            <div class="podium-score" id="pod-score-1st">0 pts</div>
+            <div class="pillar-block">1</div>
+          </div>
+          <!-- 3rd Place -->
+          <div class="podium-pillar pillar-3rd" id="podium-3rd">
+            <div class="podium-avatar" id="pod-avatar-3rd">🥉</div>
+            <div class="podium-name" id="pod-name-3rd">Player 3</div>
+            <div class="podium-score" id="pod-score-3rd">0 pts</div>
+            <div class="pillar-block">3</div>
+          </div>
+        </div>
+
+        <!-- Complete Score List -->
+        <div class="card final-rankings-card">
+          <h3 class="card-title">Full Leaderboard</h3>
+          <div class="final-rankings-list" id="final-rankings-list">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Play Again Actions -->
+        <div class="scoreboard-actions">
+          <button class="btn btn-primary btn-lg btn-block" id="btn-play-again" onclick="app.playAgain()">
+            🔄 Play Again (Same Room)
+          </button>
+          <button class="btn btn-secondary btn-block" onclick="app.leaveRoom()">
+            🏠 Back to Main Menu
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================== -->
+  <!-- MODAL: QR CODE & ROOM SHARE                -->
+  <!-- ========================================== -->
+  <div class="modal-overlay" id="modal-qr" onclick="app.closeModalOnBackdrop(event, 'modal-qr')">
+    <div class="modal-card">
+      <button class="modal-close" onclick="app.closeQRModal()">✕</button>
+      <div class="modal-header">
+        <h3 class="modal-title">Join on Phone</h3>
+        <p class="modal-desc">Scan with your camera or share the direct link below.</p>
+      </div>
+
+      <div class="qr-display-wrapper">
+        <img id="qr-image" class="qr-image" alt="Room QR Code" src="">
+        <div class="qr-room-badge">
+          ROOM: <span id="modal-room-code">----</span>
+        </div>
+      </div>
+
+      <div class="share-url-box">
+        <input type="text" id="modal-share-url" class="form-input share-url-input" readonly>
+        <button class="btn btn-secondary" onclick="app.copyModalShareUrl()">
+          📋 Copy Link
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: IDEA GENERATOR / PRESETS            -->
+  <!-- ========================================== -->
+  <div class="modal-overlay" id="modal-ideas" onclick="app.closeModalOnBackdrop(event, 'modal-ideas')">
+    <div class="modal-card modal-card-lg">
+      <button class="modal-close" onclick="app.closeIdeaModal()">✕</button>
+      <div class="modal-header">
+        <h3 class="modal-title">💡 Acronym Idea Library</h3>
+        <p class="modal-desc">Need inspiration? Select an industry or click any acronym to use it in your submission.</p>
+      </div>
+
+      <!-- Category Filter Pills -->
+      <div class="idea-filter-pills" id="idea-category-pills">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Presets List -->
+      <div class="presets-list" id="presets-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Client Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="presets.js"></script>
+  <script src="js/confetti.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
