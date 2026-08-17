@@ -18,6 +18,8 @@ class AcronymGameApp {
       activeIdeaCardIndex: null,
       selectedVoteOptionId: null,
       activeCategoryFilter: 'ALL',
+      lastRenderedGuessRoundKey: null,
+      lastRenderedVoteRoundKey: null,
       lastRenderedAcronym: null,
       knownPlayersCount: 0,
       hasShownVotingShuffle: false,
@@ -482,6 +484,9 @@ class AcronymGameApp {
   // MASTER STATE MACHINE HANDLER
   // -------------------------------------------------------------
   setScreen(screenId) {
+    if (this.state.currentScreen === screenId) {
+      return;
+    }
     this.state.currentScreen = screenId;
     const screens = document.querySelectorAll('.screen');
     screens.forEach(s => s.classList.remove('active'));
@@ -548,6 +553,15 @@ class AcronymGameApp {
   // SCREEN 2: LOBBY (PLAYER & BIG SCREEN TV DISPLAY)
   // -------------------------------------------------------------
   renderLobbyScreen(roomState) {
+    this.state.lastRenderedGuessRoundKey = null;
+    this.state.lastRenderedVoteRoundKey = null;
+    this.state.lastRenderedAcronym = null;
+    this.state.lastRevealAcronym = null;
+    this.state.selectedVoteOptionId = null;
+    this.state.hasShownVotingShuffle = false;
+    const subCardsList = document.getElementById('submission-cards-list');
+    if (subCardsList) subCardsList.innerHTML = '';
+
     const codeEl = document.getElementById('lobby-room-code');
     const countEl = document.getElementById('lobby-player-count');
     const rosterGrid = document.getElementById('lobby-roster-grid');
@@ -652,9 +666,9 @@ class AcronymGameApp {
 
     // Sync options values
     if (roomState.options) {
-      this.setSegmentVal('opt-words-control', roomState.options.wordsPerPlayer || 2);
-      this.setSegmentVal('opt-guess-time-control', roomState.options.guessTimeLimit || 45);
-      this.setSegmentVal('opt-vote-time-control', roomState.options.voteTimeLimit || 30);
+      this.setSegmentVal('opt-words-control', roomState.options.wordsPerPlayer !== undefined ? roomState.options.wordsPerPlayer : 2);
+      this.setSegmentVal('opt-guess-time-control', roomState.options.guessTimeLimit !== undefined ? roomState.options.guessTimeLimit : 45);
+      this.setSegmentVal('opt-vote-time-control', roomState.options.voteTimeLimit !== undefined ? roomState.options.voteTimeLimit : 30);
     }
   }
 
@@ -793,7 +807,7 @@ class AcronymGameApp {
       const catEl = document.getElementById(`sub-cat-${i}`);
 
       const acronym = acroEl ? acroEl.value.trim().toUpperCase() : '';
-      const definition = defEl ? defEl.value.trim() : '';
+      const definition = defEl ? defEl.value.trim().toUpperCase() : '';
       const category = catEl ? catEl.value.trim() : 'General';
 
       if (!acronym || !definition) {
@@ -820,11 +834,8 @@ class AcronymGameApp {
     const round = roomState.currentRound;
     if (!round) return;
 
-    this.state.selectedVoteOptionId = null;
-    this.state.hasShownVotingShuffle = false;
-
-    const isNewRound = this.state.lastRenderedAcronym !== round.acronym;
-    this.state.lastRenderedAcronym = round.acronym;
+    const roundKey = `${round.roundNumber || 0}_${round.acronym}`;
+    const isNewRound = this.state.lastRenderedGuessRoundKey !== roundKey;
 
     const roundNumEl = document.getElementById('guess-round-num');
     const totalRoundsEl = document.getElementById('guess-total-rounds');
@@ -851,6 +862,17 @@ class AcronymGameApp {
     const submittedNotice = document.getElementById('guess-submitted-notice');
     const guessInput = document.getElementById('guess-input');
 
+    if (isNewRound) {
+      this.state.lastRenderedGuessRoundKey = roundKey;
+      this.state.lastRenderedAcronym = round.acronym;
+      this.state.lastRenderedVoteRoundKey = null;
+      this.state.selectedVoteOptionId = null;
+      this.state.hasShownVotingShuffle = false;
+
+      if (guessInput) guessInput.value = '';
+      if (alertBox) alertBox.classList.add('hidden');
+    }
+
     if (this.state.isTvMode) {
       // Big Screen TV Host Mode: Zero spoilers!
       if (actionCard) actionCard.classList.add('hidden');
@@ -869,13 +891,6 @@ class AcronymGameApp {
       } else {
         if (authorCard) authorCard.classList.add('hidden');
         if (actionCard) actionCard.classList.remove('hidden');
-
-        if (isNewRound || (myPlayer && !myPlayer.hasGuessed)) {
-          if (guessInput && (!myPlayer || !myPlayer.hasGuessed)) {
-            guessInput.value = '';
-          }
-          if (alertBox) alertBox.classList.add('hidden');
-        }
 
         if (myPlayer && myPlayer.hasGuessed) {
           if (form) form.classList.add('hidden');
@@ -923,7 +938,7 @@ class AcronymGameApp {
     e.preventDefault();
 
     const input = document.getElementById('guess-input');
-    const guess = input ? input.value.trim() : '';
+    const guess = input ? input.value.trim().toUpperCase() : '';
 
     if (!guess) {
       this.showToast('Please type a bluff definition', 'error');
@@ -939,6 +954,7 @@ class AcronymGameApp {
         const notice = document.getElementById('guess-submitted-notice');
         if (form) form.classList.add('hidden');
         if (notice) notice.classList.remove('hidden');
+        if (alertBox) alertBox.classList.add('hidden');
         this.showToast('Bluff locked in!', 'success');
       } else if (res && res.isTooCloseToReal) {
         if (alertBox && alertText) {
@@ -958,6 +974,9 @@ class AcronymGameApp {
     const round = roomState.currentRound;
     if (!round) return;
 
+    const roundKey = `${round.roundNumber || 0}_${round.acronym}`;
+    const isNewVoteRound = this.state.lastRenderedVoteRoundKey !== roundKey;
+
     const acronymNameEl = document.getElementById('vote-acronym-name');
     if (acronymNameEl) acronymNameEl.textContent = round.acronym;
 
@@ -970,8 +989,9 @@ class AcronymGameApp {
     const myPlayer = roomState.players.find(p => p.id === this.state.playerId);
 
     // Play card shuffle sound and animate when entering voting phase
-    if (!this.state.hasShownVotingShuffle) {
+    if (!this.state.hasShownVotingShuffle || isNewVoteRound) {
       this.state.hasShownVotingShuffle = true;
+      this.state.lastRenderedVoteRoundKey = roundKey;
       if (window.soundEngine) window.soundEngine.playShuffle();
     }
 
@@ -993,38 +1013,65 @@ class AcronymGameApp {
     }
 
     if (optionsList && round.options) {
-      optionsList.innerHTML = '';
-      const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      if (isNewVoteRound || optionsList.children.length === 0) {
+        optionsList.innerHTML = '';
 
-      round.options.forEach((opt, idx) => {
-        const card = document.createElement('div');
-        const isMyBluff = Boolean(opt.isMyBluff);
-        const isMyReal = Boolean(opt.isMyRealAnswer);
-        const isSelected = this.state.selectedVoteOptionId === opt.id;
-        const isDisabled = this.state.isTvMode || isAuthor || isMyBluff || isMyReal || (myPlayer && myPlayer.hasVoted);
+        round.options.forEach((opt) => {
+          const card = document.createElement('div');
+          const isMyBluff = Boolean(opt.isMyBluff);
+          const isMyReal = Boolean(opt.isMyRealAnswer);
+          const isSelected = this.state.selectedVoteOptionId === opt.id;
+          const isDisabled = this.state.isTvMode || isAuthor || isMyBluff || isMyReal || (myPlayer && myPlayer.hasVoted);
 
-        card.className = `vote-option-card shuffle-in ${isDisabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`;
+          card.className = `vote-option-card shuffle-in ${isDisabled ? 'disabled' : ''} ${isSelected ? 'selected' : ''}`;
+          card.dataset.optionId = opt.id;
 
-        let badge = '';
-        if (isMyReal) {
-          badge = '<span class="voc-badge voc-badge-myreal">Your Real Answer</span>';
-        } else if (isMyBluff) {
-          badge = '<span class="voc-badge voc-badge-mybluff">Your Bluff</span>';
-        }
+          let badge = '';
+          if (isMyReal) {
+            badge = '<span class="voc-badge voc-badge-myreal">Your Real Answer</span>';
+          } else if (isMyBluff) {
+            badge = '<span class="voc-badge voc-badge-mybluff">Your Bluff</span>';
+          }
 
-        const letterBadge = `<span class="voc-letter" style="display:inline-block; font-weight:800; color:var(--accent-gold); margin-right:8px;">${letters[idx % letters.length]}.</span>`;
+          card.innerHTML = `
+            <div class="voc-text">${this.escapeHtml(opt.text)}</div>
+            ${badge}
+          `;
 
-        card.innerHTML = `
-          <div class="voc-text">${letterBadge} ${this.escapeHtml(opt.text)}</div>
-          ${badge}
-        `;
+          if (!isDisabled) {
+            card.onclick = () => this.handleOptionVoteClick(opt.id);
+          }
 
-        if (!isDisabled) {
-          card.onclick = () => this.handleOptionVoteClick(opt.id);
-        }
+          optionsList.appendChild(card);
+        });
+      } else {
+        // Round already rendered: update card classes without wiping or re-animating
+        const cards = optionsList.querySelectorAll('.vote-option-card');
+        cards.forEach(card => {
+          const optId = card.dataset.optionId;
+          const opt = round.options.find(o => o.id === optId);
+          if (opt) {
+            const isMyBluff = Boolean(opt.isMyBluff);
+            const isMyReal = Boolean(opt.isMyRealAnswer);
+            const isSelected = this.state.selectedVoteOptionId === opt.id;
+            const isDisabled = this.state.isTvMode || isAuthor || isMyBluff || isMyReal || (myPlayer && myPlayer.hasVoted);
 
-        optionsList.appendChild(card);
-      });
+            if (isDisabled) {
+              card.classList.add('disabled');
+              card.onclick = null;
+            } else {
+              card.classList.remove('disabled');
+              card.onclick = () => this.handleOptionVoteClick(opt.id);
+            }
+
+            if (isSelected) {
+              card.classList.add('selected');
+            } else {
+              card.classList.remove('selected');
+            }
+          }
+        });
+      }
     }
 
     // Live Voting Status Tracker
@@ -1064,14 +1111,26 @@ class AcronymGameApp {
     this.state.selectedVoteOptionId = optionId;
 
     const cards = document.querySelectorAll('.vote-option-card');
-    cards.forEach(card => card.classList.remove('selected'));
+    cards.forEach(card => {
+      if (card.dataset.optionId === optionId) {
+        card.classList.add('selected');
+      } else {
+        card.classList.remove('selected');
+      }
+    });
 
     this.socket.emit('submitVote', { optionId }, (res) => {
       if (res && res.success) {
         this.showToast('Vote submitted!', 'success');
         const locked = document.getElementById('vote-locked-card');
         if (locked) locked.classList.remove('hidden');
+        cards.forEach(c => {
+          c.classList.add('disabled');
+          c.onclick = null;
+        });
       } else {
+        this.state.selectedVoteOptionId = null;
+        cards.forEach(card => card.classList.remove('selected'));
         this.showToast((res && res.error) || 'Failed to submit vote', 'error');
       }
     });
@@ -1196,21 +1255,28 @@ class AcronymGameApp {
       });
     }
 
-    // Host next button
-    if (this.state.isHost) {
-      if (hostActions) hostActions.classList.remove('hidden');
-      const isLastRound = roomState.currentAcronymIndex + 1 >= roomState.totalAcronyms;
-      if (nextBtn) {
-        nextBtn.textContent = isLastRound ? '🏆 View Final Scoreboard ➔' : 'Next Acronym ➔';
-      }
-    } else {
-      if (hostActions) hostActions.classList.add('hidden');
+    // Host next button & spectator actions
+    if (hostActions) {
+      hostActions.classList.remove('hidden');
+    }
+    const isLastRound = roomState.currentAcronymIndex + 1 >= roomState.totalAcronyms;
+    if (nextBtn) {
+      nextBtn.textContent = isLastRound ? '🏆 View Final Scoreboard ➔' : 'Next Acronym ➔';
     }
   }
 
   nextRound() {
-    if (!this.state.isHost) return;
-    this.socket.emit('nextRound', {});
+    const nextBtn = document.getElementById('btn-next-round');
+    if (nextBtn) {
+      nextBtn.disabled = true;
+      setTimeout(() => { if (nextBtn) nextBtn.disabled = false; }, 1000);
+    }
+    this.socket.emit('nextRound', {}, (res) => {
+      if (nextBtn) nextBtn.disabled = false;
+      if (res && !res.success) {
+        this.showToast(res.error || 'Failed to advance to next acronym', 'error');
+      }
+    });
   }
 
   // Competition ranking helper with tie-support
@@ -1232,7 +1298,7 @@ class AcronymGameApp {
         ...p,
         rank: currentRank,
         isTied: isTied,
-        rankLabel: isTied ? `T-#${currentRank}` : `#${currentRank}`
+        rankLabel: `#${currentRank}`
       };
     });
   }
@@ -1263,7 +1329,7 @@ class AcronymGameApp {
       displayOrder.forEach(p => {
         const pillar = document.createElement('div');
         let pillarClass = 'pillar-3rd';
-        let pillarBlockText = p.isTied ? `T-${p.rank}` : `${p.rank}`;
+        let pillarBlockText = `${p.rank}`;
         let crown = '';
 
         if (p.rank === 1) {
@@ -1312,8 +1378,17 @@ class AcronymGameApp {
   }
 
   playAgain() {
-    if (!this.state.isHost) return;
-    this.socket.emit('playAgain', {});
+    const btn = document.getElementById('btn-play-again');
+    if (btn) {
+      btn.disabled = true;
+      setTimeout(() => { if (btn) btn.disabled = false; }, 1000);
+    }
+    this.socket.emit('playAgain', {}, (res) => {
+      if (btn) btn.disabled = false;
+      if (res && !res.success) {
+        this.showToast(res.error || 'Failed to restart game', 'error');
+      }
+    });
   }
 
   leaveRoom() {
@@ -1341,23 +1416,44 @@ class AcronymGameApp {
     phases.forEach(p => {
       const badge = document.getElementById(`${p}-timer-badge`);
       const valEl = document.getElementById(`${p}-timer-val`);
+      const unitEl = document.getElementById(`${p}-timer-unit`);
+
+      const optLimit = p === 'guess'
+        ? (this.state.roomData && this.state.roomData.options && this.state.roomData.options.guessTimeLimit)
+        : (this.state.roomData && this.state.roomData.options && this.state.roomData.options.voteTimeLimit);
+
+      const isInfinite = optLimit === 0 || optLimit === '0';
 
       if (valEl) {
-        valEl.textContent = timeLeft > 0 ? timeLeft : '0';
+        valEl.textContent = isInfinite ? '∞' : (timeLeft > 0 ? timeLeft : '0');
+      }
+
+      if (unitEl) {
+        unitEl.textContent = isInfinite ? '' : 's';
       }
 
       if (badge) {
-        if (timeLeft <= 5 && timeLeft > 0) {
+        if (isInfinite) {
+          badge.classList.remove('urgent');
+          badge.title = 'No Time Limit';
+        } else if (timeLeft <= 5 && timeLeft > 0) {
           badge.classList.add('urgent');
+          badge.title = 'Hurry up!';
         } else {
           badge.classList.remove('urgent');
+          badge.title = 'Time Remaining';
         }
       }
     });
 
-    if (timeLeft <= 5 && timeLeft > 0) {
+    const guessLimit = this.state.roomData && this.state.roomData.options && this.state.roomData.options.guessTimeLimit;
+    const voteLimit = this.state.roomData && this.state.roomData.options && this.state.roomData.options.voteTimeLimit;
+    const currentPhaseLimit = phase === 'guess' ? guessLimit : (phase === 'vote' ? voteLimit : null);
+    const isCurrentInfinite = currentPhaseLimit === 0 || currentPhaseLimit === '0';
+
+    if (!isCurrentInfinite && timeLeft <= 5 && timeLeft > 0) {
       if (window.soundEngine) window.soundEngine.playTick(true);
-    } else if (window.soundEngine && timeLeft > 0 && timeLeft <= 10) {
+    } else if (!isCurrentInfinite && window.soundEngine && timeLeft > 0 && timeLeft <= 10) {
       window.soundEngine.playTick(false);
     }
   }
@@ -1475,8 +1571,8 @@ class AcronymGameApp {
     const defEl = document.getElementById(`sub-def-${targetIdx}`);
     const catEl = document.getElementById(`sub-cat-${targetIdx}`);
 
-    if (acroEl) acroEl.value = preset.acronym;
-    if (defEl) defEl.value = preset.definition;
+    if (acroEl) acroEl.value = preset.acronym.toUpperCase();
+    if (defEl) defEl.value = preset.definition.toUpperCase();
     if (catEl) catEl.value = preset.category;
 
     this.closeIdeaModal();

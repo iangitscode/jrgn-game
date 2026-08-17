@@ -216,8 +216,8 @@ function handleBotSubmissions(room) {
       for (let i = 0; i < countNeeded; i++) {
         const preset = availablePresets[(index * countNeeded + i) % availablePresets.length];
         botSubmissions.push({
-          acronym: preset.acronym,
-          definition: preset.definition,
+          acronym: preset.acronym.toUpperCase(),
+          definition: preset.definition.toUpperCase(),
           category: preset.category
         });
       }
@@ -253,7 +253,7 @@ function startNextAcronymRound(room) {
           deck.push({
             id: `acro_${crypto.randomUUID().slice(0, 8)}`,
             acronym: sub.acronym.trim().toUpperCase(),
-            realDefinition: sub.definition.trim(),
+            realDefinition: sub.definition.trim().toUpperCase(),
             category: sub.category || 'General',
             submitterId: player.id,
             submitterName: player.name
@@ -366,7 +366,7 @@ function handleBotGuesses(room) {
         guessText = words.join(' ');
       }
 
-      bot.currentGuess = guessText;
+      bot.currentGuess = guessText.toUpperCase();
       bot.hasGuessed = true;
       broadcastRoomState(room);
       checkAllGuessesComplete(room);
@@ -398,7 +398,7 @@ function transitionToVoting(room) {
   // 1. Add Real Definition
   options.push({
     id: `opt_real_${crypto.randomUUID().slice(0, 6)}`,
-    text: round.realDefinition,
+    text: round.realDefinition.toUpperCase(),
     isReal: true,
     authorId: round.submitterId,
     authorName: round.submitterName
@@ -409,7 +409,7 @@ function transitionToVoting(room) {
     if (player.id !== round.submitterId && player.currentGuess && player.currentGuess.trim()) {
       options.push({
         id: `opt_fake_${crypto.randomUUID().slice(0, 6)}`,
-        text: player.currentGuess.trim(),
+        text: player.currentGuess.trim().toUpperCase(),
         isReal: false,
         authorId: player.id,
         authorName: player.name
@@ -423,7 +423,7 @@ function transitionToVoting(room) {
     const fake = (preset && preset.fakeGuesses && preset.fakeGuesses[0]) || `${round.acronym} Standard Protocol`;
     options.push({
       id: `opt_backup_${crypto.randomUUID().slice(0, 6)}`,
-      text: fake,
+      text: fake.toUpperCase(),
       isReal: false,
       authorId: 'house_bluff',
       authorName: 'House Bluff'
@@ -979,7 +979,7 @@ io.on('connection', (socket) => {
     // Clean and validate
     const cleanSubmissions = submissions.map(s => ({
       acronym: sanitize(s.acronym, 12).toUpperCase(),
-      definition: sanitize(s.definition, 120),
+      definition: sanitize(s.definition, 120).toUpperCase(),
       category: sanitize(s.category, 30) || 'General Industry'
     })).filter(s => s.acronym && s.definition);
 
@@ -1006,7 +1006,7 @@ io.on('connection', (socket) => {
     const player = room.players[playerId];
     if (!player) return;
 
-    const cleanGuess = sanitize(guess, 120);
+    const cleanGuess = sanitize(guess, 120).toUpperCase();
     if (!cleanGuess) {
       return callback && callback({ success: false, error: 'Please enter a guess' });
     }
@@ -1064,23 +1064,33 @@ io.on('connection', (socket) => {
     checkAllVotesComplete(room);
   });
 
-  // 10. NEXT ROUND (Host or TV Host)
+  // 10. NEXT ROUND (Host, TV Host, or active room player)
   socket.on('nextRound', (_, callback) => {
-    const { roomCode } = socket.data || {};
+    const { roomCode, playerId } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || !isAuthorizedHost(room, socket) || room.status !== 'REVEAL') {
+    if (!room || room.status !== 'REVEAL') {
       return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
+    }
+
+    const isPlayerInRoom = Boolean(playerId && room.players[playerId]);
+    if (!isAuthorizedHost(room, socket) && !isPlayerInRoom) {
+      return callback && callback({ success: false, error: 'Unauthorized' });
     }
 
     startNextAcronymRound(room);
     callback && callback({ success: true });
   });
 
-  // 11. PLAY AGAIN (Host or TV Host)
+  // 11. PLAY AGAIN (Host, TV Host, or active room player)
   socket.on('playAgain', (_, callback) => {
-    const { roomCode } = socket.data || {};
+    const { roomCode, playerId } = socket.data || {};
     const room = rooms.get(roomCode);
-    if (!room || !isAuthorizedHost(room, socket)) {
+    if (!room || room.status !== 'SCOREBOARD') {
+      return callback && callback({ success: false, error: 'Unauthorized or invalid state' });
+    }
+
+    const isPlayerInRoom = Boolean(playerId && room.players[playerId]);
+    if (!isAuthorizedHost(room, socket) && !isPlayerInRoom) {
       return callback && callback({ success: false, error: 'Unauthorized' });
     }
 
